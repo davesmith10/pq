@@ -5,17 +5,21 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # ── Library directories ───────────────────────────────────────────────────────
-set(DILITHIUM_REF_DIR  "${CMAKE_SOURCE_DIR}/../dilithium/ref")
-set(DILITHIUM_AVX2_DIR "${CMAKE_SOURCE_DIR}/../dilithium/avx2")
+# CMakeLists.txt lives in pq/scotty/src/; dilithium is at ../../../dilithium/
+set(DILITHIUM_REF_DIR  "${CMAKE_SOURCE_DIR}/../../../dilithium/ref")
+set(DILITHIUM_AVX2_DIR "${CMAKE_SOURCE_DIR}/../../../dilithium/avx2")
 
 get_filename_component(DILITHIUM_REF_DIR_ABS  "${DILITHIUM_REF_DIR}"  ABSOLUTE)
 get_filename_component(DILITHIUM_AVX2_DIR_ABS "${DILITHIUM_AVX2_DIR}" ABSOLUTE)
 
 # ── RPATH settings ────────────────────────────────────────────────────────────
 set(CMAKE_SKIP_BUILD_RPATH FALSE)
-set(CMAKE_BUILD_WITH_INSTALL_RPATH TRUE)
-set(CMAKE_INSTALL_RPATH "${DILITHIUM_REF_DIR_ABS}:${DILITHIUM_AVX2_DIR_ABS}")
-set(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
+# Build RPATH: absolute paths so build/scotty works in-place during development.
+set(CMAKE_BUILD_WITH_INSTALL_RPATH FALSE)
+set(CMAKE_BUILD_RPATH "${DILITHIUM_REF_DIR_ABS}:${DILITHIUM_AVX2_DIR_ABS}")
+# Install RPATH: relative so the installed binary is portable.
+set(CMAKE_INSTALL_RPATH "$ORIGIN/../lib/dilithium")
+set(CMAKE_INSTALL_RPATH_USE_LINK_PATH FALSE)
 
 # ── randombytes (dilithium .so files leave it undefined) ──────────────────────
 set(RANDOMBYTES_SRC "${DILITHIUM_REF_DIR_ABS}/randombytes.c")
@@ -56,3 +60,19 @@ target_compile_options(scotty PRIVATE -O2 -Wall -Wextra)
 
 # ── Install ───────────────────────────────────────────────────────────────────
 install(TARGETS scotty DESTINATION bin)
+
+# Bundle all required shared libraries into lib/dilithium/ so the dist is
+# self-contained.  The dilithium symbol namespace differs from kyber's, so
+# these must live in a separate directory from the kyber libs.
+install(FILES
+    "${DILITHIUM_REF_DIR_ABS}/libpqcrystals_dilithium2_ref.so"
+    "${DILITHIUM_REF_DIR_ABS}/libpqcrystals_dilithium3_ref.so"
+    "${DILITHIUM_REF_DIR_ABS}/libpqcrystals_dilithium5_ref.so"
+    "${DILITHIUM_REF_DIR_ABS}/libpqcrystals_fips202_ref.so"
+    "${DILITHIUM_AVX2_DIR_ABS}/libpqcrystals_dilithium2_avx2.so"
+    "${DILITHIUM_AVX2_DIR_ABS}/libpqcrystals_dilithium3_avx2.so"
+    "${DILITHIUM_AVX2_DIR_ABS}/libpqcrystals_dilithium5_avx2.so"
+    "${DILITHIUM_AVX2_DIR_ABS}/libpqcrystals_fips202_avx2.so"
+    "${DILITHIUM_AVX2_DIR_ABS}/libpqcrystals_fips202x4_avx2.so"
+    DESTINATION lib/dilithium
+)

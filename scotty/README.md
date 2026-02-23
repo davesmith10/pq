@@ -136,11 +136,23 @@ signatures issued for one purpose from being reused in another.
 
 A C++17 compiler, CMake ≥ 3.15, and the Dilithium shared libraries.
 
+The Dilithium source repository must sit **alongside** the `pq/` repo, not inside it:
+
+```
+<parent>/
+├── dilithium/    ← cloned from pq-crystals/dilithium
+└── pq/
+    └── scotty/
+```
+
+Run all commands from `<parent>/`.
+
 **Step 1 — build the Dilithium shared libraries:**
 
 ```bash
-cd ../dilithium/ref  && make shared
-cd ../dilithium/avx2 && make shared
+git clone https://github.com/pq-crystals/dilithium.git dilithium
+cd dilithium/ref  && make shared && cd ../..
+cd dilithium/avx2 && make shared && cd ../..
 ```
 
 This produces:
@@ -154,14 +166,26 @@ dilithium/avx2/libpqcrystals_fips202x4_avx2.so
 
 **Step 2 — build scotty:**
 
+*Recommended — build and assemble a self-contained distribution:*
+
 ```bash
-mkdir build && cd build
-cmake ..
+cd pq && bash package.sh
+```
+
+This produces `pq/dist/` with the binary in `bin/` and all required `.so` files bundled in
+`lib/dilithium/`. The `dist/` directory can be copied to any Linux x86-64 machine without
+further setup.
+
+*Development build (runs in-place, no install step):*
+
+```bash
+mkdir -p pq/scotty/build && cd pq/scotty/build
+cmake ../src
 make
 ```
 
-The binary is `build/scotty`. No installation step is required; RPATH is baked in so the
-binary locates all `.so` files relative to the source tree at runtime.
+The binary is `pq/scotty/build/scotty`. It uses an absolute RPATH into the source tree so
+it works without an install step.
 
 ### Build system notes
 
@@ -169,8 +193,9 @@ binary locates all `.so` files relative to the source tree at runtime.
   `-l` name collision between the ref and avx2 directories.
 - `randombytes.c` from `dilithium/ref/` is compiled directly into the binary because the
   Dilithium `.so` files leave `randombytes` as an undefined external symbol.
-- `CMAKE_INSTALL_RPATH` is set to both `dilithium/ref/` and `dilithium/avx2/` so the
-  binary runs without setting `LD_LIBRARY_PATH`.
+- Development builds bake in an absolute RPATH to the source tree. Installed binaries
+  (via `package.sh`) use a relative RPATH (`$ORIGIN/../lib/dilithium`) and are fully
+  portable.
 
 ---
 
@@ -224,17 +249,19 @@ fi
 
 ```
 scotty/
-├── CMakeLists.txt       Build definition
-├── main.cpp             CLI argument parsing and command dispatch
-├── dilithium_api.hpp    extern "C" declarations for all 12 library functions
-│                        + DilithiumParams struct with function pointers
-│                        + make_params() factory
-├── dilithium_ops.hpp    keygen / sign / verify wrapper declarations
-├── dilithium_ops.cpp    keygen / sign / verify wrapper implementations
-├── pem_io.hpp           PEM armor read/write interface
-├── pem_io.cpp           PEM armor read/write implementation
-├── base64.hpp           Base64 encode/decode interface
-└── base64.cpp           Base64 encode/decode implementation
+├── README.md
+└── src/
+    ├── CMakeLists.txt       Build definition
+    ├── main.cpp             CLI argument parsing and command dispatch
+    ├── dilithium_api.hpp    extern "C" declarations for all 12 library functions
+    │                        + DilithiumParams struct with function pointers
+    │                        + make_params() factory
+    ├── dilithium_ops.hpp    keygen / sign / verify wrapper declarations
+    ├── dilithium_ops.cpp    keygen / sign / verify wrapper implementations
+    ├── pem_io.hpp           PEM armor read/write interface
+    ├── pem_io.cpp           PEM armor read/write implementation
+    ├── base64.hpp           Base64 encode/decode interface
+    └── base64.cpp           Base64 encode/decode implementation
 ```
 
 ---

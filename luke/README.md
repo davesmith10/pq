@@ -1,12 +1,18 @@
 # luke
 
-A command-line tool for post-quantum key exchange using **CRYSTALS-Kyber** (now standardized as NIST ML-KEM). Supports Kyber512, Kyber768, and Kyber1024 with both reference and AVX2-optimized implementations.
+A command-line tool for a post-quantum kem algorithm  using **CRYSTALS-Kyber** (now standardized as NIST ML-KEM). 
+Supports Kyber512, Kyber768, and Kyber1024 with both reference and AVX2-optimized implementations.
+
+## Use Cases
+
+Key exchange is the typical case but a kem is useful for basic encryption, too.
 
 ---
 
 ## What is Kyber?
 
-Kyber is a **Key Encapsulation Mechanism (KEM)** — not a traditional encrypt/decrypt cipher. It lets two parties establish a shared secret over an insecure channel, and that shared secret can then be used to key a symmetric cipher like AES-256.
+Kyber is a **Key Encapsulation Mechanism (KEM)** — not a traditional encrypt/decrypt cipher. It lets two parties establish a shared secret over an insecure channel, 
+and that shared secret can then be used to key a symmetric cipher like AES-256.
 
 It is quantum-resistant: breaking it requires solving hard lattice problems that are believed to be infeasible even for quantum computers.
 
@@ -45,15 +51,48 @@ The shared secret is then typically used as a key for AES-256-GCM or another sym
 
 ## Build
 
-Prerequisites: `cmake`, `g++` (with C++17), and the Kyber `.so` libraries in the expected locations (see the parent repo).
+Prerequisites: `cmake`, `g++` (with C++17), and the Kyber `.so` libraries.
+
+The Kyber source repository must sit **alongside** the `pq/` repo, not inside it:
+
+```
+<parent>/
+├── kyber/    ← cloned from pq-crystals/kyber
+└── pq/
+    └── luke/
+```
+
+Run all commands from `<parent>/`.
+
+**Step 1 — build the Kyber shared libraries:**
 
 ```sh
-cd luke/build
+git clone https://github.com/pq-crystals/kyber.git kyber
+cd kyber/ref && make shared && cd ../..
+cd kyber/avx2 && make shared && cd ../..
+# The Kyber Makefile does not generate this alias automatically:
+ln -s libpqcrystals_fips202_ref.so kyber/avx2/libpqcrystals_fips202_avx2.so
+```
+
+**Step 2 — build luke:**
+
+*Recommended — build and assemble a self-contained distribution:*
+
+```sh
+cd pq && bash package.sh
+```
+
+This produces `pq/dist/` with the binary in `bin/` and all required `.so` files bundled in `lib/kyber/`. The `dist/` directory can be copied to any Linux x86-64 machine without further setup.
+
+*Development build (runs in-place, no install step):*
+
+```sh
+mkdir -p pq/luke/build && cd pq/luke/build
 cmake ..
 make
 ```
 
-The binary is written to `luke/build/luke`.
+The binary is written to `pq/luke/build/luke`.
 
 ---
 
