@@ -1,11 +1,11 @@
 # luke
 
-A command-line tool for a post-quantum kem algorithm  using **CRYSTALS-Kyber** (now standardized as NIST ML-KEM). 
+A command-line tool for post-quantum cryptography using **CRYSTALS-Kyber** (now standardized as NIST ML-KEM).
 Supports Kyber512, Kyber768, and Kyber1024 with both reference and AVX2-optimized implementations.
 
-## Use Cases
-
-Key exchange is the typical case but a kem is useful for basic encryption, too.
+Provides two usage modes:
+- **KEM primitives** (`keygen` / `encaps` / `decaps`) — low-level key exchange building blocks
+- **Hybrid file encryption** (`encrypt` / `decrypt`) — complete password-based or keypair-based file encryption using Kyber + AES-256-GCM
 
 ---
 
@@ -29,7 +29,7 @@ Alice (receiver)                         Bob (sender)
    Share alice.pk publicly
                                          2. luke encaps --pk alice.pk
                                               → bob.kem  (send to Alice)
-                                              → bob.ss   (Bob's 265 bit asymmetric encryption key, keep secret)
+                                              → bob.ss   (Bob's 256-bit shared secret, keep private)
 
 3. luke decaps --sk alice.sk --kem bob.kem
      → alice.ss  (Alice's shared secret, 265 bit asymmetric encryption key)
@@ -105,15 +105,19 @@ Commands:
   keygen    Generate a Kyber keypair
   encaps    Encapsulate a shared secret using a public key
   decaps    Decapsulate a ciphertext using a secret key
+  encrypt   Encrypt a file (Kyber KEM + AES-256-GCM)
+  decrypt   Decrypt a .lukb bundle file
 
 Options:
   --level <512|768|1024>   Security level (default: 768)
   --impl  <ref|avx2>       Implementation (default: ref)
   --pk    <file>           Public key file
   --sk    <file>           Secret key file
-  --kem   <file>           Ciphertext file
-  --ss    <file>           Shared secret output file
-  --seed  <base64>         32-byte seed for deterministic keygen/encaps (optional)
+  --kem   <file>           Ciphertext file (encaps/decaps)
+  --ss    <file>           Shared secret output file (encaps/decaps)
+  --seed  <base64>         32-byte seed for deterministic keygen/encaps/encrypt/decrypt
+  --in    <file>           Input plaintext or bundle file (encrypt/decrypt)
+  --out   <file>           Output bundle or plaintext file (encrypt/decrypt)
 ```
 
 ### keygen
@@ -157,6 +161,42 @@ luke decaps --sk alice.sk --kem alice.kem --ss my_shared_secret.ss
 
 Decapsulation is always deterministic; `--seed` is not applicable.
 
+### encrypt
+
+Encrypts a file using Kyber (KEM) + AES-256-GCM (symmetric cipher). Requires `--in` and `--out`, plus either `--seed` or `--pk`.
+
+**With `--seed` (password-based):** derives the keypair deterministically from the seed, encapsulates a random session key against it, and encrypts the file. The secret key is never written to disk — it is reconstructed from the same seed at decrypt time.
+
+```sh
+luke encrypt --seed "$SEED" --in plaintext.txt --out ciphertext.lukb
+```
+
+**With `--pk` (keypair-based):** uses an existing public key file. The corresponding `--sk` file must be available at decrypt time.
+
+```sh
+luke encrypt --pk alice.pk --in plaintext.txt --out ciphertext.lukb
+```
+
+The output is a self-contained `.lukb` bundle containing the Kyber ciphertext, AES-GCM nonce, authentication tag, and encrypted payload (see [Bundle Format](#bundle-format-lukb)).
+
+### decrypt
+
+Decrypts a `.lukb` bundle. Requires `--in` and `--out`, plus either `--seed` or `--sk`.
+
+**With `--seed`:** reconstructs the keypair from the seed, decapsulates the Kyber ciphertext to recover the session key, then decrypts.
+
+```sh
+luke decrypt --seed "$SEED" --in ciphertext.lukb --out plaintext.txt
+```
+
+**With `--sk`:** uses an existing secret key file.
+
+```sh
+luke decrypt --sk alice.sk --in ciphertext.lukb --out plaintext.txt
+```
+
+If the wrong seed or key is supplied, the AES-GCM authentication tag will not verify and `luke` exits with code 2 (`Crypto error: AES-GCM decryption failed (authentication)`). No partial plaintext is written.
+
 ---
 
 ## Complete Example
@@ -177,9 +217,96 @@ diff <(cat bob.ss) <(cat alice.ss) && echo "Shared secrets match!"
 
 ---
 
-## File Format
+## Password-Based Hybrid Encryption
 
-All files use PEM-like Base64 ASCII armor, for example:
+Beyond key exchange, `luke` supports a self-contained hybrid encryption scheme that protects a file with nothing more than a strong password. The scheme combines Kyber (post-quantum KEM) with AES-256-GCM (authenticated symmetric cipher).
+
+### How it works
+
+```
+ENCRYPT
+───────
+password ──→ hashpass ──→ seed (32-byte SHA-256 hash)
+seed ────→ keygen --seed ──→ (pk, sk)     sk is ephemeral; never stored
+pk ──────→ encaps ─────→ (kem_ct, ss)    ss = 32-byte random session key
+ss ──────→ AES-256-GCM(nonce, plaintext) → ciphertext + tag
+
+bundle written to disk:
+  header | kem_ct | nonce | tag | ciphertext
+
+DECRYPT
+───────
+password ──→ hashpass ──→ same seed
+seed ────→ keygen --seed ──→ same (pk, sk)
+sk + kem_ct ──→ decaps ──→ same ss
+ss ──────→ AES-256-GCM-verify-then-decrypt ──→ plaintext
+```
+
+The `--seed` flag on `encrypt` and `decrypt` accepts the base64 output of `hashpass` (or any other 32-byte base64 value). Both sides regenerate the same Kyber keypair from the seed on demand, so the secret key is never stored anywhere — it only exists in memory for the duration of the operation.
+
+### Why Kyber instead of just hashing the password?
+
+Using Kyber as an intermediate step provides **layered security**:
+
+- The Kyber KEM ciphertext inside the bundle binds the session key (`ss`) to the keypair. A post-quantum adversary who intercepts the bundle cannot recover `ss` without either knowing the password or breaking Kyber's lattice hardness assumption.
+- The session key `ss` is freshly randomised on every encryption, even when the same password is reused. Two files encrypted with the same password produce different session keys and different ciphertexts.
+- AES-GCM's authentication tag provides integrity: any tampering with the bundle — or use of the wrong password — is detected before any plaintext is exposed.
+
+### Example: complete password-based round-trip
+
+```sh
+# 1. Derive a 32-byte seed from a strong password using hashpass
+SEED=$(./hashpass)          # prompts silently; outputs base64 to stdout
+
+# 2. Encrypt
+luke encrypt --seed "$SEED" --in report.pdf --out report.pdf.lukb
+
+# 3. Decrypt (on the same or another machine — no key files needed)
+luke decrypt --seed "$SEED" --in report.pdf.lukb --out report.pdf
+
+# Wrong password → authentication failure, no partial output
+luke decrypt --seed "$WRONG" --in report.pdf.lukb --out out.pdf
+# Crypto error: AES-GCM decryption failed (authentication)
+```
+
+### Example: keypair-based encryption (traditional KEM flow)
+
+When the keypair is managed separately (e.g. Alice's key is on a server, Bob encrypts to her):
+
+```sh
+# Alice generates and keeps her keypair
+luke keygen --pk alice.pk --sk alice.sk
+
+# Bob encrypts to Alice's public key — no secret key needed at encrypt time
+luke encrypt --pk alice.pk --in message.txt --out message.lukb
+
+# Alice decrypts with her secret key
+luke decrypt --sk alice.sk --in message.lukb --out message.txt
+```
+
+---
+
+## Bundle Format (`.lukb`)
+
+`encrypt` writes a binary bundle. All integers are little-endian.
+
+| Field      | Size (bytes)       | Contents                              |
+|------------|--------------------|---------------------------------------|
+| magic      | 4                  | `L` `U` `K` `B`                      |
+| version    | 1                  | `0x01`                                |
+| level      | 2                  | Kyber level: 512, 768, or 1024        |
+| kem_ct     | 768 / 1088 / 1568  | Kyber KEM ciphertext                  |
+| nonce      | 12                 | AES-GCM nonce (random per encryption) |
+| tag        | 16                 | AES-GCM authentication tag            |
+| ciphertext | N                  | AES-256-GCM encrypted payload         |
+
+For the default Kyber768, overhead is 1123 bytes over the plaintext size. The bundle is self-describing: the `level` field tells `decrypt` which key size to expect, so no `--level` flag is needed at decrypt time.
+
+---
+
+## PEM Key Format
+
+All key and shared-secret files use PEM-like Base64 ASCII armor, for example:
 
 ```
 -----BEGIN KYBER768 PUBLIC KEY-----
@@ -310,8 +437,10 @@ luke/
 └── src/
     ├── main.cpp        # argument parsing and command dispatch
     ├── kyber_api.hpp   # extern "C" declarations + KyberParams struct
-    ├── kyber_ops.cpp   # keygen / encaps / decaps wrappers
+    ├── kyber_ops.cpp   # keygen / encaps / decaps / *_derand wrappers
     ├── kyber_ops.hpp
+    ├── aes_gcm.hpp     # header-only AES-256-GCM encrypt/decrypt (OpenSSL EVP)
+    ├── bundle.hpp      # header-only .lukb bundle read/write
     ├── pem_io.cpp      # read_pem / write_pem
     ├── pem_io.hpp
     ├── base64.cpp      # Base64 encode/decode

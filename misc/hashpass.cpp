@@ -26,7 +26,7 @@ static double shannon_entropy(const std::string& input) {
 }
 
 static std::string read_hidden(const std::string& prompt) {
-    std::cout << prompt << std::flush;
+    std::cerr << prompt << std::flush;
 
     struct termios old_term, new_term;
     tcgetattr(STDIN_FILENO, &old_term);
@@ -38,7 +38,7 @@ static std::string read_hidden(const std::string& prompt) {
     std::getline(std::cin, password);
 
     tcsetattr(STDIN_FILENO, TCSANOW, &old_term);
-    std::cout << "\n";
+    std::cerr << "\n";
     return password;
 }
 

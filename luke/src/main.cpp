@@ -2,7 +2,10 @@
 #include "kyber_ops.hpp"
 #include "pem_io.hpp"
 #include "base64.hpp"
+#include "aes_gcm.hpp"
+#include "bundle.hpp"
 #include <iostream>
+#include <fstream>
 #include <string>
 #include <map>
 #include <cstdlib>
@@ -22,6 +25,8 @@ static void print_usage(const char* prog) {
         "  keygen    Generate a Kyber keypair\n"
         "  encaps    Encapsulate a shared secret using a public key\n"
         "  decaps    Decapsulate a ciphertext using a secret key\n"
+        "  encrypt   Encrypt a file (Kyber KEM + AES-256-GCM)\n"
+        "  decrypt   Decrypt a .lukb bundle file\n"
         "\n"
         "Options:\n"
         "  --level <512|768|1024>   Security level (default: 768)\n"
@@ -31,13 +36,19 @@ static void print_usage(const char* prog) {
         "  --kem   <file>           Encapsulated key\n"
         "  --ss    <file>           base64-encoded 256 bit secret key\n"
         "  --seed  <base64>         32-byte (256-bit) seed for deterministic keygen/encaps\n"
+        "  --in    <file>           Input plaintext or bundle file\n"
+        "  --out   <file>           Output bundle or plaintext file\n"
         "\n"
         "Examples:\n"
         "  " << prog << " keygen --pk alice.pk --sk alice.sk\n"
         "  " << prog << " encaps --pk alice.pk --kem kem.ct --ss secret.ss\n"
         "  " << prog << " decaps --sk alice.sk --kem kem.ct --ss secret.ss\n"
         "  " << prog << " keygen --level 1024 --impl avx2 --pk alice.pk --sk alice.sk\n"
-        "  " << prog << " keygen --seed <base64-32-bytes> --pk alice.pk --sk alice.sk\n";
+        "  " << prog << " keygen --seed <base64-32-bytes> --pk alice.pk --sk alice.sk\n"
+        "  " << prog << " encrypt --seed <base64-32-bytes> --in plain.txt --out out.lukb\n"
+        "  " << prog << " decrypt --seed <base64-32-bytes> --in out.lukb --out plain.txt\n"
+        "  " << prog << " encrypt --pk alice.pk --in plain.txt --out out.lukb\n"
+        "  " << prog << " decrypt --sk alice.sk --in out.lukb --out plain.txt\n";
 }
 
 // ── Argument parser ───────────────────────────────────────────────────────────
@@ -46,7 +57,8 @@ struct Args {
     int         level = 768;
     bool        avx2  = false;
     std::string pk, sk, ct, ss;
-    std::string seed; // base64-encoded 32-byte seed for deterministic ops (optional)
+    std::string seed;   // base64-encoded 32-byte seed for deterministic ops (optional)
+    std::string in_file, out_file;
 };
 
 static bool parse_args(int argc, char** argv, Args& args, const char* prog) {
@@ -61,7 +73,9 @@ static bool parse_args(int argc, char** argv, Args& args, const char* prog) {
     }
     if (args.command != "keygen" &&
         args.command != "encaps" &&
-        args.command != "decaps") {
+        args.command != "decaps" &&
+        args.command != "encrypt" &&
+        args.command != "decrypt") {
         std::cerr << "Unknown command: " << args.command << "\n\n";
         print_usage(prog);
         return false;
@@ -111,6 +125,12 @@ static bool parse_args(int argc, char** argv, Args& args, const char* prog) {
         } else if (opt == "--seed") {
             if (!need_val()) return false;
             args.seed = argv[++i];
+        } else if (opt == "--in") {
+            if (!need_val()) return false;
+            args.in_file = argv[++i];
+        } else if (opt == "--out") {
+            if (!need_val()) return false;
+            args.out_file = argv[++i];
         } else {
             std::cerr << "Unknown option: " << opt << "\n\n";
             print_usage(prog);
@@ -266,15 +286,175 @@ static int cmd_decaps(const Args& args) {
     return EXIT_OK;
 }
 
+static int cmd_encrypt(const Args& args) {
+    if (args.in_file.empty() || args.out_file.empty()) {
+        std::cerr << "encrypt requires --in and --out\n";
+        return EXIT_USAGE;
+    }
+    if (args.pk.empty() && args.seed.empty()) {
+        std::cerr << "encrypt requires --pk or --seed\n";
+        return EXIT_USAGE;
+    }
+
+    KyberParams params = make_params(args.level, args.avx2);
+    std::string tag = level_tag(args.level);
+
+    // Resolve public key
+    std::vector<uint8_t> pk;
+    if (!args.seed.empty()) {
+        std::vector<uint8_t> seed_bytes;
+        try { seed_bytes = base64_decode(args.seed); }
+        catch (const std::exception&) {
+            std::cerr << "--seed: invalid base64\n"; return EXIT_USAGE;
+        }
+        if (seed_bytes.size() != 32) {
+            std::cerr << "--seed: must decode to exactly 32 bytes\n"; return EXIT_USAGE;
+        }
+        std::vector<uint8_t> sk_unused;
+        try { kyber::keygen_derand(params, seed_bytes.data(), pk, sk_unused); }
+        catch (const std::exception& e) {
+            std::cerr << "Crypto error: " << e.what() << "\n"; return EXIT_CRYPTO;
+        }
+    } else {
+        try { pk = read_pem(args.pk, tag + " PUBLIC KEY"); }
+        catch (const std::exception& e) {
+            std::cerr << "I/O error reading public key: " << e.what() << "\n"; return EXIT_IO;
+        }
+    }
+
+    // KEM encapsulation
+    std::vector<uint8_t> ct, ss;
+    try { kyber::encaps(params, pk, ct, ss); }
+    catch (const std::exception& e) {
+        std::cerr << "Crypto error: " << e.what() << "\n"; return EXIT_CRYPTO;
+    }
+
+    // Read plaintext
+    std::ifstream fin(args.in_file, std::ios::binary);
+    if (!fin) {
+        std::cerr << "I/O error: cannot open input file: " << args.in_file << "\n";
+        return EXIT_IO;
+    }
+    std::vector<uint8_t> plaintext(
+        (std::istreambuf_iterator<char>(fin)),
+        std::istreambuf_iterator<char>()
+    );
+
+    // AES-256-GCM encrypt
+    std::vector<uint8_t> nonce_tag_body;
+    try { nonce_tag_body = aes256gcm_encrypt(ss.data(), plaintext); }
+    catch (const std::exception& e) {
+        std::cerr << "Crypto error: " << e.what() << "\n"; return EXIT_CRYPTO;
+    }
+
+    // Write bundle
+    try { bundle_write(args.out_file, args.level, ct, nonce_tag_body); }
+    catch (const std::exception& e) {
+        std::cerr << "I/O error: " << e.what() << "\n"; return EXIT_IO;
+    }
+
+    std::cout << "Encrypted\n"
+              << "  Input:  " << args.in_file  << " (" << plaintext.size() << " bytes)\n"
+              << "  Output: " << args.out_file << " ("
+              << (7 + ct.size() + nonce_tag_body.size()) << " bytes)\n";
+    return EXIT_OK;
+}
+
+static int cmd_decrypt(const Args& args) {
+    if (args.in_file.empty() || args.out_file.empty()) {
+        std::cerr << "decrypt requires --in and --out\n";
+        return EXIT_USAGE;
+    }
+    if (args.sk.empty() && args.seed.empty()) {
+        std::cerr << "decrypt requires --sk or --seed\n";
+        return EXIT_USAGE;
+    }
+
+    // Open bundle
+    std::ifstream fin(args.in_file, std::ios::binary);
+    if (!fin) {
+        std::cerr << "I/O error: cannot open bundle: " << args.in_file << "\n";
+        return EXIT_IO;
+    }
+
+    BundleHeader hdr;
+    std::vector<uint8_t> nonce_tag_body;
+    try {
+        hdr           = bundle_read_header(fin);
+        nonce_tag_body = bundle_read_body(fin);
+    } catch (const std::exception& e) {
+        std::cerr << "Bundle error: " << e.what() << "\n"; return EXIT_IO;
+    }
+
+    KyberParams params = make_params(hdr.level, args.avx2);
+    std::string tag = level_tag(hdr.level);
+
+    // Resolve secret key
+    std::vector<uint8_t> sk;
+    if (!args.seed.empty()) {
+        std::vector<uint8_t> seed_bytes;
+        try { seed_bytes = base64_decode(args.seed); }
+        catch (const std::exception&) {
+            std::cerr << "--seed: invalid base64\n"; return EXIT_USAGE;
+        }
+        if (seed_bytes.size() != 32) {
+            std::cerr << "--seed: must decode to exactly 32 bytes\n"; return EXIT_USAGE;
+        }
+        std::vector<uint8_t> pk_unused;
+        try { kyber::keygen_derand(params, seed_bytes.data(), pk_unused, sk); }
+        catch (const std::exception& e) {
+            std::cerr << "Crypto error: " << e.what() << "\n"; return EXIT_CRYPTO;
+        }
+    } else {
+        try { sk = read_pem(args.sk, tag + " SECRET KEY"); }
+        catch (const std::exception& e) {
+            std::cerr << "I/O error reading secret key: " << e.what() << "\n"; return EXIT_IO;
+        }
+    }
+
+    // KEM decapsulation
+    std::vector<uint8_t> ss;
+    try { kyber::decaps(params, sk, hdr.ct, ss); }
+    catch (const std::exception& e) {
+        std::cerr << "Crypto error: " << e.what() << "\n"; return EXIT_CRYPTO;
+    }
+
+    // AES-256-GCM decrypt
+    std::vector<uint8_t> plaintext;
+    try { plaintext = aes256gcm_decrypt(ss.data(), nonce_tag_body); }
+    catch (const std::exception& e) {
+        std::cerr << "Crypto error: " << e.what() << "\n"; return EXIT_CRYPTO;
+    }
+
+    // Write plaintext
+    std::ofstream fout(args.out_file, std::ios::binary);
+    if (!fout) {
+        std::cerr << "I/O error: cannot open output file: " << args.out_file << "\n";
+        return EXIT_IO;
+    }
+    fout.write(reinterpret_cast<const char*>(plaintext.data()),
+               static_cast<std::streamsize>(plaintext.size()));
+    if (!fout) {
+        std::cerr << "I/O error writing output\n"; return EXIT_IO;
+    }
+
+    std::cout << "Decrypted\n"
+              << "  Input:  " << args.in_file  << "\n"
+              << "  Output: " << args.out_file << " (" << plaintext.size() << " bytes)\n";
+    return EXIT_OK;
+}
+
 // ── main ──────────────────────────────────────────────────────────────────────
 int main(int argc, char** argv) {
     Args args;
     if (!parse_args(argc, argv, args, argv[0]))
         return EXIT_USAGE;
 
-    if (args.command == "keygen") return cmd_keygen(args);
-    if (args.command == "encaps") return cmd_encaps(args);
-    if (args.command == "decaps") return cmd_decaps(args);
+    if (args.command == "keygen")  return cmd_keygen(args);
+    if (args.command == "encaps")  return cmd_encaps(args);
+    if (args.command == "decaps")  return cmd_decaps(args);
+    if (args.command == "encrypt") return cmd_encrypt(args);
+    if (args.command == "decrypt") return cmd_decrypt(args);
 
     // Should be unreachable
     return EXIT_USAGE;

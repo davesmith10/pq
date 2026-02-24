@@ -1,6 +1,8 @@
 cmake_minimum_required(VERSION 3.15)
 project(luke LANGUAGES C CXX)
 
+find_package(OpenSSL REQUIRED)
+
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
@@ -58,6 +60,8 @@ target_link_libraries(luke PRIVATE
     "${KYBER_AVX2_LIBDIR}/libpqcrystals_kyber1024_avx2.so"
     "${KYBER_AVX2_LIBDIR}/libpqcrystals_fips202_avx2.so"    # provides fips202_avx2_* symbols (symlink to fips202_ref.so in avx2/)
     "${KYBER_AVX2_LIBDIR}/libpqcrystals_fips202x4_avx2.so" # provides fips202x4_avx2_* symbols
+    OpenSSL::SSL
+    OpenSSL::Crypto
 )
 
 # ── Compiler flags ────────────────────────────────────────────────────────────
