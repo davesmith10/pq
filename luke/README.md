@@ -113,6 +113,7 @@ Options:
   --sk    <file>           Secret key file
   --kem   <file>           Ciphertext file
   --ss    <file>           Shared secret output file
+  --seed  <base64>         32-byte seed for deterministic keygen/encaps (optional)
 ```
 
 ### keygen
@@ -122,6 +123,12 @@ Generates a keypair. Requires `--pk` and `--sk`.
 ```sh
 luke keygen --pk alice.pk --sk alice.sk
 luke keygen --level 1024 --impl avx2 --pk alice.pk --sk alice.sk
+```
+
+Pass `--seed` to generate a keypair deterministically from a 256-bit seed (see [Deterministic Mode](#deterministic-mode)):
+
+```sh
+luke keygen --seed "$(openssl rand -base64 32)" --pk alice.pk --sk alice.sk
 ```
 
 ### encaps
@@ -134,6 +141,12 @@ luke encaps --pk alice.pk --kem alice.kem --ss my_shared_secret.ss
 
 The `--level` and `--impl` flags must match what was used during `keygen` — `luke` validates the PEM headers and will error if they do not match.
 
+Pass `--seed` for deterministic encapsulation:
+
+```sh
+luke encaps --seed "$(openssl rand -base64 32)" --pk alice.pk --kem alice.kem --ss my_shared_secret.ss
+```
+
 ### decaps
 
 Reads a secret key and ciphertext, recovers the shared secret. Requires `--sk`, `--kem`, and `--ss`.
@@ -141,6 +154,8 @@ Reads a secret key and ciphertext, recovers the shared secret. Requires `--sk`, 
 ```sh
 luke decaps --sk alice.sk --kem alice.kem --ss my_shared_secret.ss
 ```
+
+Decapsulation is always deterministic; `--seed` is not applicable.
 
 ---
 
@@ -231,6 +246,48 @@ algorithm.
 
 If you need both confidentiality and authentication, generate **separate** Kyber and
 Dilithium keypairs and use `luke` for key exchange and `scotty` for signing.
+
+---
+
+## Deterministic Mode
+
+By default, `keygen` and `encaps` call the operating system's random-number generator. Passing `--seed` routes them through the library's `_derand` variants instead, making the output fully reproducible from the seed alone.
+
+**Seed format:** a standard base64-encoded string that decodes to exactly 32 bytes (256 bits). Generate one with:
+
+```sh
+openssl rand -base64 32
+```
+
+**How the seed is used internally:**
+
+| Command | Seed handling |
+|---------|---------------|
+| `keygen` | The 32-byte seed is expanded to 64 bytes via SHAKE256, then passed to `keypair_derand`. The first 32 bytes seed the key matrix; the second 32 bytes are stored in the secret key for CCA rejection sampling. |
+| `encaps` | The 32-byte seed is passed directly to `enc_derand`, which uses it to sample all error polynomials. |
+| `decaps` | Always deterministic; no seed needed or accepted. |
+
+The SHAKE256 expansion means the same 32-byte seed always produces the same 64-byte input to keygen — the seed is a compact, stable identity for the keypair.
+
+**Example: deterministic round-trip**
+
+```sh
+KEYSEED="$(openssl rand -base64 32)"
+ENCSEED="$(openssl rand -base64 32)"
+
+# Regenerate the same keypair at any time from KEYSEED
+luke keygen --seed "$KEYSEED" --pk alice.pk --sk alice.sk
+
+# Deterministic encaps: same ENCSEED + same pk → same ciphertext and shared secret
+luke encaps --seed "$ENCSEED" --pk alice.pk --kem alice.kem --ss bob.ss
+
+# Decaps is unchanged
+luke decaps --sk alice.sk --kem alice.kem --ss alice.ss
+```
+
+**Error handling:** if `--seed` cannot be decoded as base64, or the decoded length is not exactly 32 bytes, `luke` exits with code 1 (usage error) before any cryptographic operation is attempted.
+
+**Security note:** a seed is long-term key material. Treat it with the same care as a secret key — anyone who knows the seed can regenerate the keypair or replay the encapsulation.
 
 ---
 

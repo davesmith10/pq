@@ -1,6 +1,7 @@
 #include "kyber_api.hpp"
 #include "kyber_ops.hpp"
 #include "pem_io.hpp"
+#include "base64.hpp"
 #include <iostream>
 #include <string>
 #include <map>
@@ -29,12 +30,14 @@ static void print_usage(const char* prog) {
         "  --sk    <file>           Secret key file\n"
         "  --kem   <file>           Encapsulated key\n"
         "  --ss    <file>           base64-encoded 256 bit secret key\n"
+        "  --seed  <base64>         32-byte (256-bit) seed for deterministic keygen/encaps\n"
         "\n"
         "Examples:\n"
         "  " << prog << " keygen --pk alice.pk --sk alice.sk\n"
         "  " << prog << " encaps --pk alice.pk --kem kem.ct --ss secret.ss\n"
         "  " << prog << " decaps --sk alice.sk --kem kem.ct --ss secret.ss\n"
-        "  " << prog << " keygen --level 1024 --impl avx2 --pk alice.pk --sk alice.sk\n";
+        "  " << prog << " keygen --level 1024 --impl avx2 --pk alice.pk --sk alice.sk\n"
+        "  " << prog << " keygen --seed <base64-32-bytes> --pk alice.pk --sk alice.sk\n";
 }
 
 // ── Argument parser ───────────────────────────────────────────────────────────
@@ -43,6 +46,7 @@ struct Args {
     int         level = 768;
     bool        avx2  = false;
     std::string pk, sk, ct, ss;
+    std::string seed; // base64-encoded 32-byte seed for deterministic ops (optional)
 };
 
 static bool parse_args(int argc, char** argv, Args& args, const char* prog) {
@@ -104,6 +108,9 @@ static bool parse_args(int argc, char** argv, Args& args, const char* prog) {
         } else if (opt == "--ss") {
             if (!need_val()) return false;
             args.ss = argv[++i];
+        } else if (opt == "--seed") {
+            if (!need_val()) return false;
+            args.seed = argv[++i];
         } else {
             std::cerr << "Unknown option: " << opt << "\n\n";
             print_usage(prog);
@@ -129,7 +136,23 @@ static int cmd_keygen(const Args& args) {
     std::vector<uint8_t> pk, sk;
 
     try {
-        kyber::keygen(params, pk, sk);
+        if (!args.seed.empty()) {
+            std::vector<uint8_t> seed_bytes;
+            try {
+                seed_bytes = base64_decode(args.seed);
+            } catch (const std::exception&) {
+                std::cerr << "--seed: invalid base64\n";
+                return EXIT_USAGE;
+            }
+            if (seed_bytes.size() != 32) {
+                std::cerr << "--seed: must decode to exactly 32 bytes (got "
+                          << seed_bytes.size() << ")\n";
+                return EXIT_USAGE;
+            }
+            kyber::keygen_derand(params, seed_bytes.data(), pk, sk);
+        } else {
+            kyber::keygen(params, pk, sk);
+        }
     } catch (const std::exception& e) {
         std::cerr << "Crypto error: " << e.what() << "\n";
         return EXIT_CRYPTO;
@@ -169,7 +192,23 @@ static int cmd_encaps(const Args& args) {
 
     std::vector<uint8_t> ct, ss;
     try {
-        kyber::encaps(params, pk, ct, ss);
+        if (!args.seed.empty()) {
+            std::vector<uint8_t> seed_bytes;
+            try {
+                seed_bytes = base64_decode(args.seed);
+            } catch (const std::exception&) {
+                std::cerr << "--seed: invalid base64\n";
+                return EXIT_USAGE;
+            }
+            if (seed_bytes.size() != 32) {
+                std::cerr << "--seed: must decode to exactly 32 bytes (got "
+                          << seed_bytes.size() << ")\n";
+                return EXIT_USAGE;
+            }
+            kyber::encaps_derand(params, pk, seed_bytes.data(), ct, ss);
+        } else {
+            kyber::encaps(params, pk, ct, ss);
+        }
     } catch (const std::exception& e) {
         std::cerr << "Crypto error: " << e.what() << "\n";
         return EXIT_CRYPTO;

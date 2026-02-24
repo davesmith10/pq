@@ -9,10 +9,21 @@ void keygen(const KyberParams& params,
             std::vector<uint8_t>& pk,
             std::vector<uint8_t>& sk);
 
+void keygen_derand(const KyberParams& params,
+                   const uint8_t seed[32],
+                   std::vector<uint8_t>& pk,
+                   std::vector<uint8_t>& sk);
+
 void encaps(const KyberParams& params,
             const std::vector<uint8_t>& pk,
             std::vector<uint8_t>& ct,
             std::vector<uint8_t>& ss);
+
+void encaps_derand(const KyberParams& params,
+                   const std::vector<uint8_t>& pk,
+                   const uint8_t seed[32],
+                   std::vector<uint8_t>& ct,
+                   std::vector<uint8_t>& ss);
 
 void decaps(const KyberParams& params,
             const std::vector<uint8_t>& sk,
