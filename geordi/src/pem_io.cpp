@@ -6,6 +6,23 @@
 
 static const int kLineWidth = 64;
 
+void write_pem(std::ostream& out,
+               const std::string& type_header,
+               const std::vector<uint8_t>& data)
+{
+    out << "-----BEGIN " << type_header << "-----\n";
+
+    std::string encoded = base64_encode(data.data(), data.size());
+    for (size_t i = 0; i < encoded.size(); i += kLineWidth) {
+        out << encoded.substr(i, kLineWidth) << '\n';
+    }
+
+    out << "-----END " << type_header << "-----\n";
+
+    if (!out)
+        throw std::runtime_error("Write error on PEM output");
+}
+
 void write_pem(const std::string& path,
                const std::string& type_header,
                const std::vector<uint8_t>& data)
@@ -14,14 +31,7 @@ void write_pem(const std::string& path,
     if (!f)
         throw std::runtime_error("Cannot open file for writing: " + path);
 
-    f << "-----BEGIN " << type_header << "-----\n";
-
-    std::string encoded = base64_encode(data.data(), data.size());
-    for (size_t i = 0; i < encoded.size(); i += kLineWidth) {
-        f << encoded.substr(i, kLineWidth) << '\n';
-    }
-
-    f << "-----END " << type_header << "-----\n";
+    write_pem(f, type_header, data);
 
     if (!f)
         throw std::runtime_error("Write error on file: " + path);

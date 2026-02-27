@@ -113,11 +113,12 @@ Options:
   --impl  <ref|avx2>       Implementation (default: ref)
   --pk    <file>           Public key file
   --sk    <file>           Secret key file
-  --kem   <file>           Ciphertext file (encaps/decaps)
-  --ss    <file>           Shared secret output file (encaps/decaps)
-  --seed  <base64>         32-byte seed for deterministic keygen/encaps/encrypt/decrypt
-  --in    <file>           Input plaintext or bundle file (encrypt/decrypt)
-  --out   <file>           Output bundle or plaintext file (encrypt/decrypt)
+  --kem     <file>           Ciphertext file (encaps/decaps)
+  --ss      <file>           Shared secret output file (encaps/decaps)
+  --seed    <base64>         32-byte deterministic seed (keygen/encaps)
+  --pwHash  <base64>         Alias for --seed; preferred name for encrypt/decrypt
+  --in      <file>           Input plaintext or bundle file (encrypt/decrypt)
+  --out     <file>           Output bundle or plaintext file (encrypt/decrypt; default: stdout)
 ```
 
 ### keygen
@@ -163,36 +164,40 @@ Decapsulation is always deterministic; `--seed` is not applicable.
 
 ### encrypt
 
-Encrypts a file using Kyber (KEM) + AES-256-GCM (symmetric cipher). Requires `--in` and `--out`, plus either `--seed` or `--pk`.
+Encrypts a file using Kyber (KEM) + AES-256-GCM (symmetric cipher). Requires `--in`, plus either `--pwHash` or `--pk`. `--out` is optional — if omitted, the base64 bundle is written to stdout.
 
-**With `--seed` (password-based):** derives the keypair deterministically from the seed, encapsulates a random session key against it, and encrypts the file. The secret key is never written to disk — it is reconstructed from the same seed at decrypt time.
+**With `--pwHash` (password-based):** derives the keypair deterministically from the seed, encapsulates a random session key against it, and encrypts the file. The secret key is never written to disk — it is reconstructed from the same seed at decrypt time.
 
 ```sh
-luke encrypt --seed "$SEED" --in plaintext.txt --out ciphertext.lukb
+luke encrypt --pwHash "$SEED" --in plaintext.txt --out ciphertext.lukb
+luke encrypt --pwHash "$SEED" --in plaintext.txt          # bundle → stdout
 ```
 
 **With `--pk` (keypair-based):** uses an existing public key file. The corresponding `--sk` file must be available at decrypt time.
 
 ```sh
 luke encrypt --pk alice.pk --in plaintext.txt --out ciphertext.lukb
+luke encrypt --pk alice.pk --in plaintext.txt              # bundle → stdout
 ```
 
-The output is a self-contained `.lukb` bundle containing the Kyber ciphertext, AES-GCM nonce, authentication tag, and encrypted payload (see [Bundle Format](#bundle-format-lukb)).
+The output is a base64-encoded binary bundle (no PEM header/footer) containing the Kyber ciphertext, AES-GCM nonce, authentication tag, and encrypted payload (see [Bundle Format](#bundle-format-lukb)).
 
 ### decrypt
 
-Decrypts a `.lukb` bundle. Requires `--in` and `--out`, plus either `--seed` or `--sk`.
+Decrypts a `.lukb` bundle. Requires `--in`, plus either `--pwHash` or `--sk`. `--out` is optional — if omitted, the recovered plaintext is written to stdout.
 
-**With `--seed`:** reconstructs the keypair from the seed, decapsulates the Kyber ciphertext to recover the session key, then decrypts.
+**With `--pwHash`:** reconstructs the keypair from the seed, decapsulates the Kyber ciphertext to recover the session key, then decrypts.
 
 ```sh
-luke decrypt --seed "$SEED" --in ciphertext.lukb --out plaintext.txt
+luke decrypt --pwHash "$SEED" --in ciphertext.lukb --out plaintext.txt
+luke decrypt --pwHash "$SEED" --in ciphertext.lukb          # plaintext → stdout
 ```
 
 **With `--sk`:** uses an existing secret key file.
 
 ```sh
 luke decrypt --sk alice.sk --in ciphertext.lukb --out plaintext.txt
+luke decrypt --sk alice.sk --in ciphertext.lukb              # plaintext → stdout
 ```
 
 If the wrong seed or key is supplied, the AES-GCM authentication tag will not verify and `luke` exits with code 2 (`Crypto error: AES-GCM decryption failed (authentication)`). No partial plaintext is written.
@@ -258,14 +263,17 @@ Using Kyber as an intermediate step provides **layered security**:
 # 1. Derive a 32-byte seed from a strong password using hashpass
 SEED=$(./hashpass)          # prompts silently; outputs base64 to stdout
 
-# 2. Encrypt
-luke encrypt --seed "$SEED" --in report.pdf --out report.pdf.lukb
+# 2. Encrypt (to file)
+luke encrypt --pwHash "$SEED" --in report.pdf --out report.pdf.lukb
 
-# 3. Decrypt (on the same or another machine — no key files needed)
-luke decrypt --seed "$SEED" --in report.pdf.lukb --out report.pdf
+# 3. Decrypt (to file, on the same or another machine — no key files needed)
+luke decrypt --pwHash "$SEED" --in report.pdf.lukb --out report.pdf
+
+# Or decrypt directly to stdout
+luke decrypt --pwHash "$SEED" --in report.pdf.lukb
 
 # Wrong password → authentication failure, no partial output
-luke decrypt --seed "$WRONG" --in report.pdf.lukb --out out.pdf
+luke decrypt --pwHash "$WRONG" --in report.pdf.lukb --out out.pdf
 # Crypto error: AES-GCM decryption failed (authentication)
 ```
 
@@ -288,7 +296,7 @@ luke decrypt --sk alice.sk --in message.lukb --out message.txt
 
 ## Bundle Format (`.lukb`)
 
-`encrypt` writes a binary bundle. All integers are little-endian.
+`encrypt` writes a **base64-encoded** binary bundle (a single line, no PEM header/footer). The underlying binary layout uses little-endian integers:
 
 | Field      | Size (bytes)       | Contents                              |
 |------------|--------------------|---------------------------------------|
@@ -300,7 +308,7 @@ luke decrypt --sk alice.sk --in message.lukb --out message.txt
 | tag        | 16                 | AES-GCM authentication tag            |
 | ciphertext | N                  | AES-256-GCM encrypted payload         |
 
-For the default Kyber768, overhead is 1123 bytes over the plaintext size. The bundle is self-describing: the `level` field tells `decrypt` which key size to expect, so no `--level` flag is needed at decrypt time.
+The bundle is self-describing: the `level` field tells `decrypt` which key size to expect, so no `--level` flag is needed at decrypt time. The base64 encoding makes bundles safe to embed in JSON, emails, or shell scripts.
 
 ---
 
@@ -349,14 +357,14 @@ The two implementations are interoperable: a keypair generated with `--impl ref`
 
 ---
 
-## Keys are not interchangeable with scotty / Dilithium
+## Keys are not interchangeable with geordi / Dilithium
 
-Kyber (used by `luke`) and Dilithium (used by [`scotty`](../scotty/)) are both built on
+Kyber (used by `luke`) and Dilithium (used by [`geordi`](../geordi/)) are both built on
 **module lattice** mathematics — specifically, both derive their security from variants of
 the Module Learning With Errors (MLWE) problem — but they are distinct algorithms with
 incompatible key structures and completely different purposes:
 
-| Property | Kyber (luke) | Dilithium (scotty) |
+| Property | Kyber (luke) | Dilithium (geordi) |
 |----------|--------------|--------------------|
 | Purpose | Key encapsulation (KEM) | Digital signatures |
 | Hard problem | Module-LWE (decryption hardness) | Module-LWE + Module-SIS (signing + verification) |
@@ -372,13 +380,13 @@ if that check were bypassed the raw bytes would be structurally meaningless to t
 algorithm.
 
 If you need both confidentiality and authentication, generate **separate** Kyber and
-Dilithium keypairs and use `luke` for key exchange and `scotty` for signing.
+Dilithium keypairs and use `luke` for key exchange and `geordi` for signing.
 
 ---
 
 ## Deterministic Mode
 
-By default, `keygen` and `encaps` call the operating system's random-number generator. Passing `--seed` routes them through the library's `_derand` variants instead, making the output fully reproducible from the seed alone.
+By default, `keygen` and `encaps` call the operating system's random-number generator. Passing `--seed` (or its alias `--pwHash`) routes them through the library's `_derand` variants instead, making the output fully reproducible from the seed alone.
 
 **Seed format:** a standard base64-encoded string that decodes to exactly 32 bytes (256 bits). Generate one with:
 
@@ -412,7 +420,7 @@ luke encaps --seed "$ENCSEED" --pk alice.pk --kem alice.kem --ss bob.ss
 luke decaps --sk alice.sk --kem alice.kem --ss alice.ss
 ```
 
-**Error handling:** if `--seed` cannot be decoded as base64, or the decoded length is not exactly 32 bytes, `luke` exits with code 1 (usage error) before any cryptographic operation is attempted.
+**Error handling:** if `--seed`/`--pwHash` cannot be decoded as base64, or the decoded length is not exactly 32 bytes, `luke` exits with code 1 (usage error) before any cryptographic operation is attempted.
 
 **Security note:** a seed is long-term key material. Treat it with the same care as a secret key — anyone who knows the seed can regenerate the keypair or replay the encapsulation.
 

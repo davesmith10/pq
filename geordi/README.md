@@ -1,6 +1,6 @@
-# scotty — Dilithium Signature Swiss Army Knife
+# geordi — Dilithium Signature Swiss Army Knife
 
-`scotty` is a command-line tool for generating, signing, and verifying post-quantum digital
+`geordi` is a command-line tool for generating, signing, and verifying post-quantum digital
 signatures using the **CRYSTALS-Dilithium** (ML-DSA) algorithm. It supports all three NIST
 security levels and both the portable reference and AVX2-optimised implementations.
 
@@ -25,9 +25,9 @@ provide a complete post-quantum "swiss-army knife" style toolkit built on the
 ## Commands
 
 ```
-scotty keygen  [--d2|--d3|--d5] [--impl ref|avx2] --pk <file> --sk <file>
-scotty sign    [--d2|--d3|--d5] [--impl ref|avx2] --sk <file> --msg <file> --sig <file> [--ctx <str>]
-scotty verify  [--d2|--d3|--d5] [--impl ref|avx2] --pk <file> --msg <file> --sig <file> [--ctx <str>]
+geordi keygen  [--d2|--d3|--d5] [--impl ref|avx2] --pk <file> --sk <file>
+geordi sign    [--d2|--d3|--d5] [--impl ref|avx2] --sk <file> --msg <file> [--sig <file>] [--ctx <str>]
+geordi verify  [--d2|--d3|--d5] [--impl ref|avx2] --pk <file> --msg <file> --sig <file> [--ctx <str>]
 ```
 
 ### keygen
@@ -46,9 +46,11 @@ Signs the contents of `--msg` using the secret key and writes the detached signa
 ```
 --sk  <file>    Input:  secret key (PEM)
 --msg <file>    Input:  message to sign (arbitrary binary)
---sig <file>    Output: detached signature (PEM)
---ctx <string>  Optional: signing context string (default: "scotty:signing:v1")
+--sig <file>    Output: detached signature (PEM) — optional; omit to print to stdout
+--ctx <string>  Optional: signing context string (default: "geordi:signing:v1")
 ```
+
+If `--sig` is omitted, the PEM signature is printed to stdout and no success message is emitted (suitable for piping).
 
 ### verify
 
@@ -77,8 +79,8 @@ Prints `Signature valid.` or `Signature INVALID.` to stdout and exits accordingl
 | `--pk <file>` | — | Public key file path |
 | `--sk <file>` | — | Secret key file path |
 | `--msg <file>` | — | Message file path |
-| `--sig <file>` | — | Signature file path |
-| `--ctx <str>` | `scotty:signing:v1` | Signing context (ML-DSA context string) |
+| `--sig <file>` | — | Signature file path (sign: optional, stdout if omitted; verify: required) |
+| `--ctx <str>` | `geordi:signing:v1` | Signing context (ML-DSA context string) |
 
 ---
 
@@ -110,7 +112,7 @@ Header types:
 - `DILITHIUM2 SIGNATURE` / `DILITHIUM3 SIGNATURE` / `DILITHIUM5 SIGNATURE`
 
 If you attempt to verify a signature file whose header says `DILITHIUM2` while passing
-`--d3`, scotty reports an I/O error (exit 3) rather than producing a silent wrong result.
+`--d3`, geordi reports an I/O error (exit 3) rather than producing a silent wrong result.
 
 ---
 
@@ -121,7 +123,7 @@ input to the signing algorithm). Two signatures over the same message are
 cryptographically distinct if they were produced with different context strings, and
 verification will fail if the context strings don't match.
 
-The default context `scotty:signing:v1` is used when `--ctx` is omitted on both `sign`
+The default context `geordi:signing:v1` is used when `--ctx` is omitted on both `sign`
 and `verify`. You can use any string up to the library's limit; an empty string (`""`) is
 valid.
 
@@ -142,7 +144,7 @@ The Dilithium source repository must sit **alongside** the `pq/` repo, not insid
 <parent>/
 ├── dilithium/    ← cloned from pq-crystals/dilithium
 └── pq/
-    └── scotty/
+    └── geordi/
 ```
 
 Run all commands from `<parent>/`.
@@ -164,7 +166,7 @@ dilithium/avx2/libpqcrystals_fips202_avx2.so
 dilithium/avx2/libpqcrystals_fips202x4_avx2.so
 ```
 
-**Step 2 — build scotty:**
+**Step 2 — build geordi:**
 
 *Recommended — build and assemble a self-contained distribution:*
 
@@ -179,12 +181,12 @@ further setup.
 *Development build (runs in-place, no install step):*
 
 ```bash
-mkdir -p pq/scotty/build && cd pq/scotty/build
+mkdir -p pq/geordi/build && cd pq/geordi/build
 cmake ../src
 make
 ```
 
-The binary is `pq/scotty/build/scotty`. It uses an absolute RPATH into the source tree so
+The binary is `pq/geordi/build/geordi`. It uses an absolute RPATH into the source tree so
 it works without an install step.
 
 ### Build system notes
@@ -205,36 +207,39 @@ it works without an install step.
 
 ```bash
 # Generate a keypair
-scotty keygen --pk alice.pub --sk alice.priv
+geordi keygen --pk alice.pub --sk alice.priv
 
-# Sign a file
-scotty sign --sk alice.priv --msg document.pdf --sig document.sig
+# Sign a file (to file)
+geordi sign --sk alice.priv --msg document.pdf --sig document.sig
+
+# Sign and print PEM signature to stdout
+geordi sign --sk alice.priv --msg document.pdf
 
 # Verify
-scotty verify --pk alice.pub --msg document.pdf --sig document.sig
+geordi verify --pk alice.pub --msg document.pdf --sig document.sig
 # → Signature valid.
 ```
 
 ### Higher security level with AVX2
 
 ```bash
-scotty keygen --d5 --impl avx2 --pk alice.pub --sk alice.priv
-scotty sign   --d5 --impl avx2 --sk alice.priv --msg data.bin --sig data.sig
-scotty verify --d5 --impl avx2 --pk alice.pub  --msg data.bin --sig data.sig
+geordi keygen --d5 --impl avx2 --pk alice.pub --sk alice.priv
+geordi sign   --d5 --impl avx2 --sk alice.priv --msg data.bin --sig data.sig
+geordi verify --d5 --impl avx2 --pk alice.pub  --msg data.bin --sig data.sig
 ```
 
 ### Application-specific context
 
 ```bash
 # Signer and verifier must agree on the context string
-scotty sign   --sk alice.priv --msg payload.json --sig payload.sig --ctx "myapp:auth:v2"
-scotty verify --pk alice.pub  --msg payload.json --sig payload.sig --ctx "myapp:auth:v2"
+geordi sign   --sk alice.priv --msg payload.json --sig payload.sig --ctx "myapp:auth:v2"
+geordi verify --pk alice.pub  --msg payload.json --sig payload.sig --ctx "myapp:auth:v2"
 ```
 
 ### Scripted batch verification (exit code check)
 
 ```bash
-scotty verify --pk alice.pub --msg file.bin --sig file.sig
+geordi verify --pk alice.pub --msg file.bin --sig file.sig
 if [ $? -eq 0 ]; then
     echo "OK, proceeding"
 else
@@ -248,7 +253,7 @@ fi
 ## Source layout
 
 ```
-scotty/
+geordi/
 ├── README.md
 └── src/
     ├── CMakeLists.txt       Build definition
@@ -268,12 +273,12 @@ scotty/
 
 ## Keys are not interchangeable with luke / Kyber
 
-Dilithium (used by `scotty`) and Kyber (used by [`luke`](../luke/)) are both built on
+Dilithium (used by `geordi`) and Kyber (used by [`luke`](../luke/)) are both built on
 **module lattice** mathematics — specifically, both derive their security from variants of
 the Module Learning With Errors (MLWE) problem — but they are distinct algorithms with
 incompatible key structures and completely different purposes:
 
-| Property | Dilithium (scotty) | Kyber (luke) |
+| Property | Dilithium (geordi) | Kyber (luke) |
 |----------|--------------------|--------------|
 | Purpose | Digital signatures | Key encapsulation (KEM) |
 | Hard problem | Module-LWE + Module-SIS (signing + verification) | Module-LWE (decryption hardness) |
@@ -284,23 +289,23 @@ incompatible key structures and completely different purposes:
 A Dilithium secret key **cannot** be used in a KEM, and a Kyber secret key **cannot** be
 used to sign a message. The internal polynomial representations, noise distributions, and
 key-derivation procedures differ between the two algorithms. Passing a Kyber key file to
-`scotty` (or vice versa) will be caught immediately by the PEM header check (`DILITHIUM3`
+`geordi` (or vice versa) will be caught immediately by the PEM header check (`DILITHIUM3`
 vs `KYBER768`), but even if that check were bypassed the raw bytes would be structurally
 meaningless to the other algorithm.
 
 If you need both confidentiality and authentication, generate **separate** Dilithium and
-Kyber keypairs and use `scotty` for signing and `luke` for key exchange.
+Kyber keypairs and use `geordi` for signing and `luke` for key exchange.
 
 ---
 
 ## Relationship to ML-DSA / FIPS 204
 
 Dilithium3 was standardised as **ML-DSA-65** in NIST FIPS 204 (August 2024). The
-underlying algorithm is identical; only the naming changed. `scotty` uses the original
+underlying algorithm is identical; only the naming changed. `geordi` uses the original
 `pqcrystals` library naming in PEM headers (`DILITHIUM2/3/5`) rather than the FIPS names
 (`ML-DSA-44/65/87`) to stay consistent with the library's own identifiers.
 
 The `--ctx` parameter corresponds directly to the **ctx** input defined in FIPS 204
-§5.2 (ML-DSA.Sign) and §3.3 (ML-DSA.Verify). The default context `"scotty:signing:v1"`
+§5.2 (ML-DSA.Sign) and §3.3 (ML-DSA.Verify). The default context `"geordi:signing:v1"`
 is a non-empty domain separator; pass `--ctx ""` to use an empty context if your protocol
 requires it.

@@ -1,10 +1,16 @@
 #pragma once
 #include <string>
 #include <vector>
+#include <ostream>
 #include <cstdint>
 
-// Write a PEM-like armored file.
+// Write PEM-like armor to a stream.
 // type_header: e.g. "DILITHIUM3 PUBLIC KEY"
+void write_pem(std::ostream& out,
+               const std::string& type_header,
+               const std::vector<uint8_t>& data);
+
+// Write PEM-like armor to a file.
 void write_pem(const std::string& path,
                const std::string& type_header,
                const std::vector<uint8_t>& data);

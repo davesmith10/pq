@@ -1,11 +1,11 @@
 cmake_minimum_required(VERSION 3.15)
-project(scotty LANGUAGES C CXX)
+project(geordi LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # ── Library directories ───────────────────────────────────────────────────────
-# CMakeLists.txt lives in pq/scotty/src/; dilithium is at ../../../dilithium/
+# CMakeLists.txt lives in pq/geordi/src/; dilithium is at ../../../dilithium/
 set(DILITHIUM_REF_DIR  "${CMAKE_SOURCE_DIR}/../../../dilithium/ref")
 set(DILITHIUM_AVX2_DIR "${CMAKE_SOURCE_DIR}/../../../dilithium/avx2")
 
@@ -14,7 +14,7 @@ get_filename_component(DILITHIUM_AVX2_DIR_ABS "${DILITHIUM_AVX2_DIR}" ABSOLUTE)
 
 # ── RPATH settings ────────────────────────────────────────────────────────────
 set(CMAKE_SKIP_BUILD_RPATH FALSE)
-# Build RPATH: absolute paths so build/scotty works in-place during development.
+# Build RPATH: absolute paths so build/geordi works in-place during development.
 set(CMAKE_BUILD_WITH_INSTALL_RPATH FALSE)
 set(CMAKE_BUILD_RPATH "${DILITHIUM_REF_DIR_ABS}:${DILITHIUM_AVX2_DIR_ABS}")
 # Install RPATH: relative so the installed binary is portable.
@@ -33,15 +33,15 @@ set(SOURCES
     ${RANDOMBYTES_SRC}
 )
 
-add_executable(scotty ${SOURCES})
-target_include_directories(scotty PRIVATE
+add_executable(geordi ${SOURCES})
+target_include_directories(geordi PRIVATE
     .
     "${DILITHIUM_REF_DIR_ABS}"      # for randombytes.h
 )
 
 # ── Link against .so files by full path ───────────────────────────────────────
 # Linking by full path avoids any -l name collisions between ref and avx2.
-target_link_libraries(scotty PRIVATE
+target_link_libraries(geordi PRIVATE
     # ref implementations
     "${DILITHIUM_REF_DIR_ABS}/libpqcrystals_dilithium2_ref.so"
     "${DILITHIUM_REF_DIR_ABS}/libpqcrystals_dilithium3_ref.so"
@@ -56,10 +56,10 @@ target_link_libraries(scotty PRIVATE
 )
 
 # ── Compiler flags ────────────────────────────────────────────────────────────
-target_compile_options(scotty PRIVATE -O2 -Wall -Wextra)
+target_compile_options(geordi PRIVATE -O2 -Wall -Wextra)
 
 # ── Install ───────────────────────────────────────────────────────────────────
-install(TARGETS scotty DESTINATION bin)
+install(TARGETS geordi DESTINATION bin)
 
 # Bundle all required shared libraries into lib/dilithium/ so the dist is
 # self-contained.  The dilithium symbol namespace differs from kyber's, so

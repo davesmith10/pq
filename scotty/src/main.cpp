@@ -1,277 +1,152 @@
-#include "dilithium_api.hpp"
-#include "dilithium_ops.hpp"
-#include "pem_io.hpp"
+#include "tray.hpp"
+#include "yaml_io.hpp"
+#include "tray_pack.hpp"
 #include <iostream>
-#include <fstream>
 #include <string>
-#include <vector>
+#include <cstring>
 #include <cstdlib>
 
-// ── Exit codes ────────────────────────────────────────────────────────────────
-static const int EXIT_OK     = 0;
-static const int EXIT_USAGE  = 1;
-static const int EXIT_CRYPTO = 2;
-static const int EXIT_IO     = 3;
-
-// ── Default signing context ───────────────────────────────────────────────────
-static const uint8_t kDefaultCtx[] = "scotty:signing:v1";
-static const size_t  kDefaultCtxLen = sizeof(kDefaultCtx) - 1;
-
 // ── Usage ─────────────────────────────────────────────────────────────────────
+
 static void print_usage(const char* prog) {
     std::cerr <<
-        "Usage: " << prog << " <command> [options]\n"
+        "Usage: " << prog << " keygen\n"
+        "              --alias <name>\n"
+        "              [--tray <level2|level2nist|level3nist|level5nist>]\n"
+        "              [--summary]\n"
+        "              [--classiconly | --pqonly]\n"
         "\n"
-        "Commands:\n"
-        "  keygen    Generate a Dilithium keypair\n"
-        "  sign      Sign a message\n"
-        "  verify    Verify a signature\n"
+        "  --tray        Tray type (default: level2)\n"
+        "  --alias       Name for this tray (required)\n"
+        "  --summary     Print a human-readable summary instead of YAML\n"
+        "  --out <file>  Write binary msgpack (.tray) to file instead of YAML stdout\n"
+        "  --classiconly Include only classical (EC/EdDSA) key slots\n"
+        "  --pqonly      Include only post-quantum (Kyber/Dilithium) key slots\n"
         "\n"
-        "Options:\n"
-        "  --d2              Security level ML-DSA-44 / Dilithium2\n"
-        "  --d3              Security level ML-DSA-65 / Dilithium3 (default)\n"
-        "  --d5              Security level ML-DSA-87 / Dilithium5\n"
-        "  --impl <ref|avx2> Implementation (default: ref)\n"
-        "  --pk   <file>     Public key file\n"
-        "  --sk   <file>     Secret key file\n"
-        "  --msg  <file>     Message file\n"
-        "  --sig  <file>     Signature file\n"
-        "  --ctx  <string>   Signing context (default: \"scotty:signing:v1\")\n"
+        "Output: YAML tray to stdout (default). Use --out to write binary msgpack.\n"
         "\n"
-        "Examples:\n"
-        "  " << prog << " keygen --pk alice.pub --sk alice.priv\n"
-        "  " << prog << " sign   --sk alice.priv --msg msg.txt --sig msg.sig\n"
-        "  " << prog << " verify --pk alice.pub  --msg msg.txt --sig msg.sig\n"
-        "  " << prog << " keygen --d5 --impl avx2 --pk alice.pub --sk alice.priv\n";
+        "Tray types:\n"
+        "  level2      X25519 + Kyber-512 + Ed25519 + Dilithium2\n"
+        "  level2nist  P-256  + Kyber-512 + ECDSA P-256 + Dilithium2\n"
+        "  level3nist  P-384  + Kyber-768 + ECDSA P-384 + Dilithium3\n"
+        "  level5nist  P-521  + Kyber-1024 + ECDSA P-521 + Dilithium5\n";
 }
 
-// ── Argument parser ───────────────────────────────────────────────────────────
-struct Args {
-    std::string command;
-    int         mode = 3;    // 2, 3, or 5
-    bool        avx2 = false;
-    std::string pk, sk, msg, sig;
-    std::string ctx;
-    bool        has_ctx = false;
-};
+// ── keygen command ────────────────────────────────────────────────────────────
 
-static bool parse_args(int argc, char** argv, Args& args, const char* prog) {
-    if (argc < 2) {
-        print_usage(prog);
-        return false;
-    }
-    args.command = argv[1];
-    if (args.command == "--help" || args.command == "-h") {
-        print_usage(prog);
-        return false;
-    }
-    if (args.command != "keygen" &&
-        args.command != "sign"   &&
-        args.command != "verify") {
-        std::cerr << "Unknown command: " << args.command << "\n\n";
-        print_usage(prog);
-        return false;
-    }
+static int cmd_keygen(int argc, char* argv[]) {
+    std::string alias;
+    std::string tray_str = "level2";
+    std::string out_file;
+    bool summary_only = false;
+    bool classic_only = false;
+    bool pq_only      = false;
 
-    for (int i = 2; i < argc; ++i) {
-        std::string opt = argv[i];
-        auto need_val = [&]() -> bool {
-            if (i + 1 >= argc) {
-                std::cerr << "Option " << opt << " requires a value\n";
-                return false;
-            }
-            return true;
-        };
-
-        if (opt == "--d2") {
-            args.mode = 2;
-        } else if (opt == "--d3") {
-            args.mode = 3;
-        } else if (opt == "--d5") {
-            args.mode = 5;
-        } else if (opt == "--impl") {
-            if (!need_val()) return false;
-            std::string impl = argv[++i];
-            if (impl == "avx2") {
-                args.avx2 = true;
-            } else if (impl == "ref") {
-                args.avx2 = false;
-            } else {
-                std::cerr << "Invalid impl: " << impl << " (must be ref or avx2)\n";
-                return false;
-            }
-        } else if (opt == "--pk") {
-            if (!need_val()) return false;
-            args.pk = argv[++i];
-        } else if (opt == "--sk") {
-            if (!need_val()) return false;
-            args.sk = argv[++i];
-        } else if (opt == "--msg") {
-            if (!need_val()) return false;
-            args.msg = argv[++i];
-        } else if (opt == "--sig") {
-            if (!need_val()) return false;
-            args.sig = argv[++i];
-        } else if (opt == "--ctx") {
-            if (!need_val()) return false;
-            args.ctx = argv[++i];
-            args.has_ctx = true;
+    for (int i = 1; i < argc; ++i) {
+        if (std::strcmp(argv[i], "--alias") == 0) {
+            if (++i >= argc) { std::cerr << "Error: --alias requires a value\n"; return 1; }
+            alias = argv[i];
+        } else if (std::strcmp(argv[i], "--tray") == 0) {
+            if (++i >= argc) { std::cerr << "Error: --tray requires a value\n"; return 1; }
+            tray_str = argv[i];
+        } else if (std::strcmp(argv[i], "--summary") == 0) {
+            summary_only = true;
+        } else if (std::strcmp(argv[i], "--out") == 0) {
+            if (++i >= argc) { std::cerr << "Error: --out requires a filename\n"; return 1; }
+            out_file = argv[i];
+        } else if (std::strcmp(argv[i], "--yaml") == 0) {
+            // accepted for backwards compatibility; YAML is already the default
+        } else if (std::strcmp(argv[i], "--classiconly") == 0) {
+            classic_only = true;
+        } else if (std::strcmp(argv[i], "--pqonly") == 0) {
+            pq_only = true;
         } else {
-            std::cerr << "Unknown option: " << opt << "\n\n";
-            print_usage(prog);
-            return false;
+            std::cerr << "Error: unknown option: " << argv[i] << "\n";
+            return 1;
         }
     }
-    return true;
-}
 
-// ── Read a binary file into a vector ─────────────────────────────────────────
-static std::vector<uint8_t> read_file(const std::string& path) {
-    std::ifstream f(path, std::ios::binary);
-    if (!f)
-        throw std::runtime_error("Cannot open file for reading: " + path);
-    return std::vector<uint8_t>(
-        std::istreambuf_iterator<char>(f),
-        std::istreambuf_iterator<char>());
-}
-
-// ── Commands ──────────────────────────────────────────────────────────────────
-static int cmd_keygen(const Args& args) {
-    if (args.pk.empty() || args.sk.empty()) {
-        std::cerr << "keygen requires --pk and --sk\n";
-        return EXIT_USAGE;
+    // Validate
+    if (alias.empty()) {
+        std::cerr << "Error: --alias is required\n";
+        return 1;
+    }
+    if (classic_only && pq_only) {
+        std::cerr << "Error: --classiconly and --pqonly are mutually exclusive\n";
+        return 1;
     }
 
-    DilithiumParams params = make_params(args.mode, args.avx2);
-    std::vector<uint8_t> pk, sk;
+    TrayType ttype;
+    if      (tray_str == "level2")     ttype = TrayType::Level2;
+    else if (tray_str == "level2nist") ttype = TrayType::Level2NIST;
+    else if (tray_str == "level3nist") ttype = TrayType::Level3NIST;
+    else if (tray_str == "level5nist") ttype = TrayType::Level5NIST;
+    else {
+        std::cerr << "Error: unknown tray type '" << tray_str
+                  << "' (must be level2, level2nist, level3nist, or level5nist)\n";
+        return 1;
+    }
 
+    Tray tray;
     try {
-        dilithium::keygen(params, pk, sk);
+        tray = make_tray(ttype, alias, classic_only, pq_only);
     } catch (const std::exception& e) {
-        std::cerr << "Crypto error: " << e.what() << "\n";
-        return EXIT_CRYPTO;
+        std::cerr << "Error: crypto failure: " << e.what() << "\n";
+        return 2;
     }
 
-    try {
-        write_pem(args.pk, params.label + " PUBLIC KEY", pk);
-        write_pem(args.sk, params.label + " SECRET KEY", sk);
-    } catch (const std::exception& e) {
-        std::cerr << "I/O error: " << e.what() << "\n";
-        return EXIT_IO;
-    }
-
-    std::cout << "Generated " << params.label << " keypair\n"
-              << "  Public key: " << args.pk << " (" << pk.size() << " bytes)\n"
-              << "  Secret key: " << args.sk << " (" << sk.size() << " bytes)\n";
-    return EXIT_OK;
-}
-
-static int cmd_sign(const Args& args) {
-    if (args.sk.empty() || args.msg.empty() || args.sig.empty()) {
-        std::cerr << "sign requires --sk, --msg, and --sig\n";
-        return EXIT_USAGE;
-    }
-
-    DilithiumParams params = make_params(args.mode, args.avx2);
-
-    std::vector<uint8_t> sk, msg;
-    try {
-        sk  = read_pem(args.sk, params.label + " SECRET KEY");
-        msg = read_file(args.msg);
-    } catch (const std::exception& e) {
-        std::cerr << "I/O error: " << e.what() << "\n";
-        return EXIT_IO;
-    }
-
-    const uint8_t* ctx_ptr;
-    size_t         ctx_len;
-    std::vector<uint8_t> ctx_buf;
-    if (args.has_ctx) {
-        ctx_buf.assign(args.ctx.begin(), args.ctx.end());
-        ctx_ptr = ctx_buf.data();
-        ctx_len = ctx_buf.size();
+    if (!out_file.empty()) {
+        try {
+            tray_mp::pack_to_file(tray, out_file);
+        } catch (const std::exception& e) {
+            std::cerr << "Error: msgpack write failed: " << e.what() << "\n";
+            return 3;
+        }
+    } else if (summary_only) {
+        std::cout << "Tray generated:\n"
+                  << "  alias:   " << tray.alias       << "\n"
+                  << "  type:    " << tray.type_str     << "\n"
+                  << "  id:      " << tray.id           << "\n"
+                  << "  created: " << tray.created      << "\n"
+                  << "  expires: " << tray.expires      << "\n"
+                  << "  slots:   " << tray.slots.size() << "\n";
+        for (const auto& s : tray.slots) {
+            std::cout << "    - " << s.alg_name
+                      << "  pk=" << s.pk.size() << "B"
+                      << "  sk=" << s.sk.size() << "B\n";
+        }
     } else {
-        ctx_ptr = kDefaultCtx;
-        ctx_len = kDefaultCtxLen;
+        try {
+            std::cout << emit_tray_yaml(tray);
+        } catch (const std::exception& e) {
+            std::cerr << "Error: YAML output failed: " << e.what() << "\n";
+            return 3;
+        }
     }
 
-    std::vector<uint8_t> sig;
-    try {
-        dilithium::sign(params, sk, msg, ctx_ptr, ctx_len, sig);
-    } catch (const std::exception& e) {
-        std::cerr << "Crypto error: " << e.what() << "\n";
-        return EXIT_CRYPTO;
-    }
-
-    try {
-        write_pem(args.sig, params.label + " SIGNATURE", sig);
-    } catch (const std::exception& e) {
-        std::cerr << "I/O error: " << e.what() << "\n";
-        return EXIT_IO;
-    }
-
-    std::cout << "Signed message\n"
-              << "  Signature: " << args.sig << " (" << sig.size() << " bytes)\n";
-    return EXIT_OK;
-}
-
-static int cmd_verify(const Args& args) {
-    if (args.pk.empty() || args.msg.empty() || args.sig.empty()) {
-        std::cerr << "verify requires --pk, --msg, and --sig\n";
-        return EXIT_USAGE;
-    }
-
-    DilithiumParams params = make_params(args.mode, args.avx2);
-
-    std::vector<uint8_t> pk, msg, sig;
-    try {
-        pk  = read_pem(args.pk,  params.label + " PUBLIC KEY");
-        msg = read_file(args.msg);
-        sig = read_pem(args.sig, params.label + " SIGNATURE");
-    } catch (const std::exception& e) {
-        std::cerr << "I/O error: " << e.what() << "\n";
-        return EXIT_IO;
-    }
-
-    const uint8_t* ctx_ptr;
-    size_t         ctx_len;
-    std::vector<uint8_t> ctx_buf;
-    if (args.has_ctx) {
-        ctx_buf.assign(args.ctx.begin(), args.ctx.end());
-        ctx_ptr = ctx_buf.data();
-        ctx_len = ctx_buf.size();
-    } else {
-        ctx_ptr = kDefaultCtx;
-        ctx_len = kDefaultCtxLen;
-    }
-
-    bool valid = false;
-    try {
-        valid = dilithium::verify(params, pk, msg, ctx_ptr, ctx_len, sig);
-    } catch (const std::exception& e) {
-        std::cerr << "Crypto error: " << e.what() << "\n";
-        return EXIT_CRYPTO;
-    }
-
-    if (valid) {
-        std::cout << "Signature valid.\n";
-        return EXIT_OK;
-    } else {
-        std::cout << "Signature INVALID.\n";
-        return EXIT_CRYPTO;
-    }
+    return 0;
 }
 
 // ── main ──────────────────────────────────────────────────────────────────────
-int main(int argc, char** argv) {
-    Args args;
-    if (!parse_args(argc, argv, args, argv[0]))
-        return EXIT_USAGE;
 
-    if (args.command == "keygen") return cmd_keygen(args);
-    if (args.command == "sign")   return cmd_sign(args);
-    if (args.command == "verify") return cmd_verify(args);
+int main(int argc, char* argv[]) {
+    if (argc < 2) {
+        print_usage(argv[0]);
+        return 1;
+    }
 
-    // Should be unreachable
-    return EXIT_USAGE;
+    std::string cmd = argv[1];
+
+    if (cmd == "keygen") {
+        return cmd_keygen(argc - 1, argv + 1);
+    }
+
+    if (cmd == "--help" || cmd == "-h") {
+        print_usage(argv[0]);
+        return 0;
+    }
+
+    std::cerr << "Error: unknown command '" << cmd << "'\n";
+    print_usage(argv[0]);
+    return 1;
 }

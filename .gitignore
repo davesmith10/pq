@@ -1,6 +1,9 @@
 
 /luke/build/
+/geordi/build/
 /scotty/build/
+/obi-wan/build/
+/msgpack/build/
 
 # Prerequisites
 *.d

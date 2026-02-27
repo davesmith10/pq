@@ -5,9 +5,15 @@
 #include <iomanip>
 #include <vector>
 #include <cstdint>
+#include <sstream>
 #include <termios.h>
 #include <unistd.h>
 #include <openssl/evp.h>
+#include <openssl/rand.h>
+
+static const int    PBKDF2_ITERATIONS = 600000;
+static const size_t PBKDF2_SALT_LEN   = 16;
+static const size_t PBKDF2_KEY_LEN    = 32;
 
 static double shannon_entropy(const std::string& input) {
     if (input.empty()) return 0.0;
@@ -42,16 +48,12 @@ static std::string read_hidden(const std::string& prompt) {
     return password;
 }
 
-static std::vector<uint8_t> sha256(const std::string& input) {
-    std::vector<uint8_t> digest(EVP_MAX_MD_SIZE);
-    unsigned int digest_len = 0;
-    EVP_Digest(
-        input.data(), input.size(),
-        digest.data(), &digest_len,
-        EVP_sha256(), nullptr
-    );
-    digest.resize(digest_len);
-    return digest;
+static std::string hex_encode(const std::vector<uint8_t>& data) {
+    std::ostringstream oss;
+    oss << std::hex << std::setfill('0');
+    for (uint8_t b : data)
+        oss << std::setw(2) << static_cast<int>(b);
+    return oss.str();
 }
 
 static std::string base64_encode(const std::vector<uint8_t>& data) {
@@ -78,7 +80,28 @@ int main() {
         return 1;
     }
 
-    std::vector<uint8_t> hash = sha256(password);
-    std::cout << base64_encode(hash) << "\n";
+    // Generate random salt
+    std::vector<uint8_t> salt(PBKDF2_SALT_LEN);
+    if (RAND_bytes(salt.data(), static_cast<int>(PBKDF2_SALT_LEN)) != 1) {
+        std::cerr << "Error: RAND_bytes failed\n";
+        return 1;
+    }
+
+    // Derive key via PBKDF2-HMAC-SHA256
+    std::vector<uint8_t> key(PBKDF2_KEY_LEN);
+    int rc = PKCS5_PBKDF2_HMAC(
+        password.data(), static_cast<int>(password.size()),
+        salt.data(), static_cast<int>(PBKDF2_SALT_LEN),
+        PBKDF2_ITERATIONS,
+        EVP_sha256(),
+        static_cast<int>(PBKDF2_KEY_LEN), key.data()
+    );
+    if (rc != 1) {
+        std::cerr << "Error: PBKDF2 derivation failed\n";
+        return 1;
+    }
+
+    std::cout << "salt: " << hex_encode(salt) << "\n";
+    std::cout << "key:  " << base64_encode(key) << "\n";
     return 0;
 }
