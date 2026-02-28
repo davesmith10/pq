@@ -74,3 +74,58 @@ inline std::array<uint8_t, 32> derive_key_kmac(
         throw std::runtime_error("KMAC256 KDF failed");
     return key;
 }
+
+// HYKE KMAC256 KDF (for sign/verify commands)
+// key     = SS_classical
+// message = SS_pq || CT_classical || CT_pq || salt   (raw concat, no len prefixes)
+// custom  = "obi-wan-hybrid-sig-v1"
+// outlen  = 256 bits → 32 bytes
+inline std::array<uint8_t, 32> derive_key_hyke(
+    const std::vector<uint8_t>& ss_classical,
+    const std::vector<uint8_t>& ss_pq,
+    const std::vector<uint8_t>& ct_classical,
+    const std::vector<uint8_t>& ct_pq,
+    const uint8_t salt[32])
+{
+    static const char* kCustom = "obi-wan-hybrid-sig-v1";
+    static const size_t kCustomLen = 21; // strlen("obi-wan-hybrid-sig-v1")
+
+    std::vector<uint8_t> msg;
+    msg.reserve(ss_pq.size() + ct_classical.size() + ct_pq.size() + 32);
+    msg.insert(msg.end(), ss_pq.begin(),        ss_pq.end());
+    msg.insert(msg.end(), ct_classical.begin(),  ct_classical.end());
+    msg.insert(msg.end(), ct_pq.begin(),         ct_pq.end());
+    msg.insert(msg.end(), salt,                  salt + 32);
+
+    std::array<uint8_t, 32> key;
+    if (KMAC256(ss_classical.data(), ss_classical.size() * 8,
+                msg.data(),          msg.size() * 8,
+                key.data(),          256,
+                (const uint8_t*)kCustom, kCustomLen * 8) != 0)
+        throw std::runtime_error("derive_key_hyke: KMAC256 failed");
+    return key;
+}
+
+// HYKE context binding (key-substitution prevention)
+// ctx = KMAC256(key=pk_classical, msg=pk_pq || "obi-wan-hybrid-sig-v1", outlen=512 bits)
+// Returns 64-byte context vector committed to both public keys.
+inline std::vector<uint8_t> compute_hyke_ctx(
+    const std::vector<uint8_t>& pk_classical,
+    const std::vector<uint8_t>& pk_pq)
+{
+    static const char* kDomain    = "obi-wan-hybrid-sig-v1";
+    static const size_t kDomainLen = 21;
+
+    std::vector<uint8_t> msg;
+    msg.reserve(pk_pq.size() + kDomainLen);
+    msg.insert(msg.end(), pk_pq.begin(), pk_pq.end());
+    msg.insert(msg.end(), kDomain, kDomain + kDomainLen);
+
+    std::vector<uint8_t> ctx(64);
+    if (KMAC256(pk_classical.data(), pk_classical.size() * 8,
+                msg.data(),          msg.size() * 8,
+                ctx.data(),          512,
+                (const uint8_t*)"",  0) != 0)
+        throw std::runtime_error("compute_hyke_ctx: KMAC256 failed");
+    return ctx;
+}

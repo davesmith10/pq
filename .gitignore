@@ -4,6 +4,7 @@
 /scotty/build/
 /obi-wan/build/
 /msgpack/build/
+/static-verify/build/
 
 # Prerequisites
 *.d

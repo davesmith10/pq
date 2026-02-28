@@ -8,16 +8,15 @@ find_package(OpenSSL REQUIRED)
 find_package(yaml-cpp REQUIRED)
 
 # ── Library paths ─────────────────────────────────────────────────────────────
-# CMakeLists.txt lives in pq/obi-wan/; kyber is at ../../kyber
+# CMakeLists.txt lives in pq/obi-wan/; kyber is at ../../kyber, dilithium at ../../dilithium
 set(KYBER_REF_DIR "${CMAKE_SOURCE_DIR}/../../kyber/ref")
 set(XKCP_DIR      "${CMAKE_SOURCE_DIR}/../../XKCP")
 
 get_filename_component(KYBER_REF_DIR_ABS "${KYBER_REF_DIR}" ABSOLUTE)
 get_filename_component(XKCP_DIR_ABS      "${XKCP_DIR}"      ABSOLUTE)
 
-set(KYBER_REF_LIBDIR "${KYBER_REF_DIR_ABS}/lib")
-set(XKCP_LIBDIR      "${XKCP_DIR_ABS}/bin/x86-64")
-set(XKCP_INC         "${XKCP_DIR_ABS}/bin/x86-64/libXKCP.so.headers")
+set(XKCP_LIBDIR "${XKCP_DIR_ABS}/bin/x86-64")
+set(XKCP_INC    "${XKCP_DIR_ABS}/bin/x86-64/libXKCP.so.headers")
 
 # msgpack-c and tray_pack
 set(MSGPACK_SRC "${CMAKE_SOURCE_DIR}/../msgpack/src")
@@ -26,24 +25,25 @@ set(MSGPACK_INC "${CMAKE_SOURCE_DIR}/../../msgpack-c/include")
 # ── RPATH ─────────────────────────────────────────────────────────────────────
 set(CMAKE_SKIP_BUILD_RPATH FALSE)
 set(CMAKE_BUILD_WITH_INSTALL_RPATH FALSE)
-set(CMAKE_BUILD_RPATH "${KYBER_REF_LIBDIR}:${XKCP_LIBDIR}")
+# Build RPATH: XKCP only — kyber/dilithium are now statically linked.
+set(CMAKE_BUILD_RPATH "${XKCP_LIBDIR}")
+# Install RPATH: relative so the installed binary is portable.
 set(CMAKE_INSTALL_RPATH "$ORIGIN/../lib/obi-wan")
 set(CMAKE_INSTALL_RPATH_USE_LINK_PATH FALSE)
 
 # ── randombytes ───────────────────────────────────────────────────────────────
 set(RANDOMBYTES_SRC "${KYBER_REF_DIR_ABS}/randombytes.c")
 
-# ── fips202 (kyber namespace only — no dilithium needed) ─────────────────────
-# obi-wan uses Kyber ref only, so we need kyber's fips202 namespace.
-# Compile fips202.c into an OBJECT library and export via -rdynamic.
-add_library(kyber_fips202_obj OBJECT "${KYBER_REF_DIR_ABS}/fips202.c")
-target_include_directories(kyber_fips202_obj PRIVATE "${KYBER_REF_DIR_ABS}")
+add_subdirectory(../../kyber/ref     kyber_ref_build)
+add_subdirectory(../../dilithium/ref dilithium_ref_build)
 
 # ── Sources ───────────────────────────────────────────────────────────────────
 set(SOURCES
     src/main.cpp
     src/kyber_kem.cpp
     src/ec_kem.cpp
+    src/ec_sig.cpp
+    src/dilithium_sig.cpp
     src/tray_reader.cpp
     src/armor.cpp
     src/base64.cpp
@@ -51,10 +51,7 @@ set(SOURCES
     ${RANDOMBYTES_SRC}
 )
 
-add_executable(obi-wan
-    ${SOURCES}
-    $<TARGET_OBJECTS:kyber_fips202_obj>
-)
+add_executable(obi-wan ${SOURCES})
 
 target_include_directories(obi-wan PRIVATE
     src
@@ -67,14 +64,16 @@ target_include_directories(obi-wan PRIVATE
 
 target_compile_definitions(obi-wan PRIVATE MSGPACK_NO_BOOST)
 
-# Export symbols so Kyber .so files can resolve their fips202 dependencies
-target_link_options(obi-wan PRIVATE -rdynamic)
-
 # ── Link ──────────────────────────────────────────────────────────────────────
 target_link_libraries(obi-wan PRIVATE
-    "${KYBER_REF_LIBDIR}/libpqcrystals_kyber512_ref.so"
-    "${KYBER_REF_LIBDIR}/libpqcrystals_kyber768_ref.so"
-    "${KYBER_REF_LIBDIR}/libpqcrystals_kyber1024_ref.so"
+    pqcrystals_kyber512_ref
+    pqcrystals_kyber768_ref
+    pqcrystals_kyber1024_ref
+    pqcrystals_kyber_fips202_ref
+    pqcrystals_dilithium2_ref
+    pqcrystals_dilithium3_ref
+    pqcrystals_dilithium5_ref
+    pqcrystals_dilithium_fips202_ref
     "${XKCP_LIBDIR}/libXKCP.so"
     OpenSSL::Crypto
     yaml-cpp
@@ -87,10 +86,6 @@ target_compile_options(obi-wan PRIVATE -O2 -Wall -Wextra)
 install(TARGETS obi-wan DESTINATION bin)
 
 install(FILES
-    "${KYBER_REF_LIBDIR}/libpqcrystals_kyber512_ref.so"
-    "${KYBER_REF_LIBDIR}/libpqcrystals_kyber768_ref.so"
-    "${KYBER_REF_LIBDIR}/libpqcrystals_kyber1024_ref.so"
-    "${KYBER_REF_LIBDIR}/libpqcrystals_fips202_ref.so"
     "${XKCP_LIBDIR}/libXKCP.so"
     DESTINATION lib/obi-wan
 )
