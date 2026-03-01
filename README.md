@@ -4,6 +4,8 @@ C++17 CLI tools and libraries for hybrid PQ+classical key management.
 Built against the CRYSTALS reference implementations from
 [pq-crystals](https://github.com/pq-crystals).
 
+See [ALGORITHMS.md](ALGORITHMS.md) for details on the OBIWAN and HYKE 'encryption' and 'encrypt-then-sign' hybrid algorithms. 
+
 ## Tools
 
 ### scotty — Hybrid Tray Keygen
