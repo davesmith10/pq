@@ -6,6 +6,17 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 find_package(OpenSSL REQUIRED)
 find_package(yaml-cpp REQUIRED)
+find_package(BLAKE3 REQUIRED)
+find_package(TBB    REQUIRED)
+
+# RPATH: TBB is a shared library; record its location so the binary finds it
+# at runtime without requiring LD_LIBRARY_PATH.
+get_target_property(_tbb_loc TBB::tbb IMPORTED_LOCATION_RELEASE)
+if(NOT _tbb_loc)
+    get_target_property(_tbb_loc TBB::tbb IMPORTED_LOCATION)
+endif()
+get_filename_component(_tbb_libdir "${_tbb_loc}" DIRECTORY)
+set(CMAKE_BUILD_RPATH "${_tbb_libdir}")
 
 # ── Library source directories ─────────────────────────────────────────────────
 # CMakeLists.txt lives in pq/scotty/; kyber is at ../../kyber, dilithium at ../../dilithium
@@ -60,6 +71,8 @@ target_link_libraries(scotty PRIVATE
     pqcrystals_dilithium3_ref
     pqcrystals_dilithium5_ref
     pqcrystals_dilithium_fips202_ref
+    BLAKE3::blake3
+    TBB::tbb
     OpenSSL::Crypto
     yaml-cpp
 )

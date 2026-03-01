@@ -42,12 +42,14 @@ std::string emit_tray_yaml(const Tray& tray) {
     out << YAML::BeginDoc;
     out << YAML::BeginMap;
 
-    out << YAML::Key << "version" << YAML::Value << tray.version;
-    out << YAML::Key << "alias"   << YAML::Value << tray.alias;
-    out << YAML::Key << "type"    << YAML::Value << tray.type_str;
-    out << YAML::Key << "id"      << YAML::Value << tray.id;
+    out << YAML::Key << "version"       << YAML::Value << tray.version;
+    out << YAML::Key << "alias"         << YAML::Value << tray.alias;
+    out << YAML::Key << "profile-group" << YAML::Value << tray.profile_group;
+    out << YAML::Key << "profile"       << YAML::Value << tray.type_str;
+    out << YAML::Key << "type"          << YAML::Value << "tray";
+    out << YAML::Key << "id"            << YAML::Value << tray.id;
 
-    out << YAML::Key << "tray" << YAML::Value;
+    out << YAML::Key << "slots" << YAML::Value;
     out << YAML::BeginSeq;
 
     for (size_t i = 0; i < tray.slots.size(); ++i) {

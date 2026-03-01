@@ -6,6 +6,8 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 find_package(OpenSSL REQUIRED)
 find_package(yaml-cpp REQUIRED)
+find_package(BLAKE3 REQUIRED)
+find_package(TBB    REQUIRED)
 
 # ── Library paths ─────────────────────────────────────────────────────────────
 # CMakeLists.txt lives in pq/obi-wan/; kyber is at ../../kyber, dilithium at ../../dilithium
@@ -25,8 +27,13 @@ set(MSGPACK_INC "${CMAKE_SOURCE_DIR}/../../msgpack-c/include")
 # ── RPATH ─────────────────────────────────────────────────────────────────────
 set(CMAKE_SKIP_BUILD_RPATH FALSE)
 set(CMAKE_BUILD_WITH_INSTALL_RPATH FALSE)
-# Build RPATH: XKCP only — kyber/dilithium are now statically linked.
-set(CMAKE_BUILD_RPATH "${XKCP_LIBDIR}")
+# Build RPATH: XKCP + TBB — kyber/dilithium are statically linked.
+get_target_property(_tbb_loc TBB::tbb IMPORTED_LOCATION_RELEASE)
+if(NOT _tbb_loc)
+    get_target_property(_tbb_loc TBB::tbb IMPORTED_LOCATION)
+endif()
+get_filename_component(_tbb_libdir "${_tbb_loc}" DIRECTORY)
+set(CMAKE_BUILD_RPATH "${XKCP_LIBDIR}" "${_tbb_libdir}")
 # Install RPATH: relative so the installed binary is portable.
 set(CMAKE_INSTALL_RPATH "$ORIGIN/../lib/obi-wan")
 set(CMAKE_INSTALL_RPATH_USE_LINK_PATH FALSE)
@@ -75,6 +82,8 @@ target_link_libraries(obi-wan PRIVATE
     pqcrystals_dilithium5_ref
     pqcrystals_dilithium_fips202_ref
     "${XKCP_LIBDIR}/libXKCP.so"
+    BLAKE3::blake3
+    TBB::tbb
     OpenSSL::Crypto
     yaml-cpp
 )

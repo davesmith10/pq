@@ -9,10 +9,12 @@ namespace tray_mp {
 // ── helpers ───────────────────────────────────────────────────────────────────
 
 static TrayType type_str_to_enum(const std::string& s) {
-    if (s == "level2")     return TrayType::Level2;
-    if (s == "level2nist") return TrayType::Level2NIST;
-    if (s == "level3nist") return TrayType::Level3NIST;
-    if (s == "level5nist") return TrayType::Level5NIST;
+    if (s == "level0")       return TrayType::Level0;
+    if (s == "level1")       return TrayType::Level1;
+    if (s == "level2-25519") return TrayType::Level2_25519;
+    if (s == "level2")       return TrayType::Level2;
+    if (s == "level3")       return TrayType::Level3;
+    if (s == "level5")       return TrayType::Level5;
     throw std::runtime_error("Unknown tray type string: " + s);
 }
 
@@ -35,7 +37,7 @@ std::vector<uint8_t> pack(const Tray& tray) {
     msgpack::sbuffer buf;
     msgpack::packer<msgpack::sbuffer> pk(buf);
 
-    pk.pack_map(7);
+    pk.pack_map(8);
 
     // "v" → version
     pk.pack(std::string("v"));
@@ -45,7 +47,11 @@ std::vector<uint8_t> pack(const Tray& tray) {
     pk.pack(std::string("a"));
     pk.pack(tray.alias);
 
-    // "t" → type_str
+    // "pg" → profile_group
+    pk.pack(std::string("pg"));
+    pk.pack(tray.profile_group);
+
+    // "t" → type_str (profile)
     pk.pack(std::string("t"));
     pk.pack(tray.type_str);
 
@@ -97,7 +103,7 @@ Tray unpack(const std::vector<uint8_t>& data) {
         throw std::runtime_error("unpack: top-level object must be a map");
 
     Tray tray;
-    bool got_v = false, got_a = false, got_t = false, got_id = false,
+    bool got_v = false, got_a = false, got_pg = false, got_t = false, got_id = false,
          got_cr = false, got_ex = false, got_sl = false;
 
     const auto& map = obj.via.map;
@@ -114,6 +120,9 @@ Tray unpack(const std::vector<uint8_t>& data) {
         } else if (key == "a") {
             tray.alias = require_str(val, "'a'");
             got_a = true;
+        } else if (key == "pg") {
+            tray.profile_group = require_str(val, "'pg'");
+            got_pg = true;
         } else if (key == "t") {
             tray.type_str = require_str(val, "'t'");
             tray.tray_type = type_str_to_enum(tray.type_str);
@@ -156,7 +165,7 @@ Tray unpack(const std::vector<uint8_t>& data) {
         }
     }
 
-    if (!got_v || !got_a || !got_t || !got_id || !got_cr || !got_ex || !got_sl)
+    if (!got_v || !got_a || !got_pg || !got_t || !got_id || !got_cr || !got_ex || !got_sl)
         throw std::runtime_error("unpack: missing required fields in msgpack tray");
 
     return tray;

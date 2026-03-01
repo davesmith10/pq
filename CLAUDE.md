@@ -58,29 +58,30 @@ cmake --build pq/msgpack/build -j$(nproc)
 
 ```bash
 # obi-wan: encrypt → decrypt (YAML tray, defaults)
-./pq/scotty/build/scotty keygen --alias alice --tray level2 > /tmp/alice.tray
+./pq/scotty/build/scotty keygen --alias alice --tray level2-25519 > /tmp/alice.tray
 echo "hello" > /tmp/plain.txt
 ./pq/obi-wan/build/obi-wan encrypt --tray /tmp/alice.tray /tmp/plain.txt > /tmp/out.armored
 ./pq/obi-wan/build/obi-wan decrypt --tray /tmp/alice.tray /tmp/out.armored | diff /tmp/plain.txt -
 
 # obi-wan: KMAC + ChaCha20, msgpack tray
-./pq/scotty/build/scotty keygen --alias bob --tray level3nist --out /tmp/bob.tray
+./pq/scotty/build/scotty keygen --alias bob --tray level3 --out /tmp/bob.tray
 ./pq/obi-wan/build/obi-wan encrypt --tray /tmp/bob.tray --kdf KMAC --cipher ChaCha20 /tmp/plain.txt > /tmp/out2.armored
 ./pq/obi-wan/build/obi-wan decrypt --tray /tmp/bob.tray /tmp/out2.armored | diff /tmp/plain.txt -
 
 # obi-wan: sign → verify (HYKE, all 4 tray types)
-./pq/scotty/build/scotty keygen --alias alice --tray level2 > /tmp/alice.tray
+./pq/scotty/build/scotty keygen --alias alice --tray level2-25519 > /tmp/alice.tray
 ./pq/obi-wan/build/obi-wan sign   --tray /tmp/alice.tray /tmp/plain.txt > /tmp/alice.hyke
 ./pq/obi-wan/build/obi-wan verify --tray /tmp/alice.tray /tmp/alice.hyke | diff /tmp/plain.txt -
 
 # scotty: hybrid tray keygen
-./scotty keygen --tray level3nist --alias alice             # YAML to stdout (default)
-./scotty keygen --alias bob                                 # default tray: level2
-./scotty keygen --tray level2nist --alias x --classiconly
-./scotty keygen --tray level5nist --alias y --pqonly
-./scotty keygen --tray level3nist --alias alice --summary   # human-readable summary
-./scotty keygen --alias alice --out alice.tray              # binary msgpack to file
-./scotty keygen --tray level3nist --alias bob --out bob.tray
+./scotty keygen --tray level3 --alias alice                          # YAML to stdout (default)
+./scotty keygen --alias bob                                          # default profile: level2-25519
+./scotty keygen --tray level0 --alias alice                          # classical-only (2 slots)
+./scotty keygen --tray level1 --alias alice                          # PQ-only (2 slots)
+./scotty keygen --alias alice --out alice.tray                       # binary msgpack to file + auto-summary
+./scotty keygen --tray level3 --alias bob --out bob.tray
+./scotty keygen --alias carol --tray level2-25519 --public           # YAML + companion public YAML
+./scotty keygen --alias carol --tray level3 --public --out carol.tray  # carol.tray + carol.pub.tray
 
 # msgpack: round-trip tests
 ./pq/msgpack/build/test_roundtrip
@@ -150,7 +151,7 @@ scotty generates **hybrid trays** — named bundles of paired PQ+classical key s
 - `base64.{hpp,cpp}` — Base64 encode/decode
 - `pq/msgpack/src/tray_pack.{hpp,cpp}` — compiled directly into scotty for `--out` binary output
 
-**Output modes**: default = YAML stdout; `--out <file>` = binary msgpack; `--summary` = text summary.
+**Output modes**: default = YAML stdout; `--out <file>` = binary msgpack + auto-summary to stdout; `--public` = also emit companion public tray (no sk fields, fresh UUID, alias `<name>.pub`).
 
 **scotty fips202 linking strategy**: Both kyber and dilithium ref .so files need `fips202`
 symbols from different namespaces (`pqcrystals_kyber_fips202_ref_*` vs
@@ -172,7 +173,7 @@ CMake project builds a standalone `libtraymsgpack.a` and tests for other consume
 
 **Wire format**: top-level msgpack map with short string keys:
 ```
-map(7) { "v"→uint, "a"→str, "t"→str, "id"→str, "cr"→str, "ex"→str,
+map(8) { "v"→uint, "a"→str, "pg"→str, "t"→str, "id"→str, "cr"→str, "ex"→str,
          "sl"→array[ map{ "alg"→str, "pk"→bin, "sk"→bin (optional) } ] }
 ```
 pk/sk are stored as raw bytes (msgpack BIN), not base64. Achieves ~67% of YAML file size.

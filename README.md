@@ -12,24 +12,27 @@ Generates named **hybrid trays** — bundles of paired PQ+classical key slots
 covering both KEM and signature roles.
 
 ```
-scotty keygen [--tray level2|level2nist|level3nist|level5nist]
+scotty keygen [--tray level0|level1|level2-25519|level2|level3|level5]
               --alias <name>
-              [--out <file>] [--summary] [--classiconly|--pqonly]
+              [--out <file>]
+              [--public]
 ```
 
-| Tray        | KEM-classic | KEM-PQ    | Sig-classic  | Sig-PQ     |
-|-------------|-------------|-----------|--------------|------------|
-| `level2`    | X25519      | Kyber512  | Ed25519      | Dilithium2 |
-| `level2nist`| P-256       | Kyber512  | ECDSA P-256  | Dilithium2 |
-| `level3nist`| P-384       | Kyber768  | ECDSA P-384  | Dilithium3 |
-| `level5nist`| P-521       | Kyber1024 | ECDSA P-521  | Dilithium5 |
+| Profile        | KEM-classic | KEM-PQ    | Sig-classic  | Sig-PQ     |
+|----------------|-------------|-----------|--------------|------------|
+| `level0`       | X25519      | —         | Ed25519      | —          |
+| `level1`       | —           | Kyber512  | —            | Dilithium2 |
+| `level2-25519` | X25519      | Kyber512  | Ed25519      | Dilithium2 |
+| `level2`       | P-256       | Kyber512  | ECDSA P-256  | Dilithium2 |
+| `level3`       | P-384       | Kyber768  | ECDSA P-384  | Dilithium3 |
+| `level5`       | P-521       | Kyber1024 | ECDSA P-521  | Dilithium5 |
 
-Default tray: `level2`.
+Default profile: `level2-25519`.
 
 **Output modes:**
 - Default (no flags): YAML with literal block scalar base64 to stdout
-- `--out <file>`: write compact binary MessagePack to `<file>` (~67% of YAML size)
-- `--summary`: print a human-readable one-line summary to stdout
+- `--out <file>`: write compact binary MessagePack to `<file>` (~67% of YAML size); auto-prints a human-readable summary to stdout
+- `--public`: also emit a companion public tray (alias `<name>.pub`, fresh UUID, no secret keys). With `--out`, written to `<name>.pub.<ext>`; without `--out`, both YAML documents go to stdout
 
 ### obi-wan — Hybrid KEM Encryption and Signing
 
@@ -72,6 +75,12 @@ obi-wan verify --tray <file> <target-file>
 
 Output armor: `-----BEGIN/END HYKE SIGNED FILE-----`
 
+**Tray UUID self-verification**: on load, obi-wan recomputes the tray UUID from the
+public key material in each slot (using the same BLAKE3 key-derivation algorithm as
+scotty) and rejects the tray if the stored UUID does not match. This detects accidental
+corruption or substitution of key material. Trays with a non-v8 UUID are loaded without
+verification (backward compat with pre-UUID-derivation trays).
+
 Wire format: `"HYKE"` (4B) + version (2B) + tray\_id (1B) + flags (1B) +
 header\_len (4B) + payload\_len (4B) + tray\_uuid (16B) + salt (32B) +
 4 × length fields (16B) + `CT_classical` + `CT_pq` + `sig_classical` + `sig_pq` +
@@ -106,7 +115,7 @@ tray_mp::pack_to_file(tray, "alice.tray");
 Tray t2 = tray_mp::unpack_from_file("alice.tray");
 ```
 
-Wire format: top-level msgpack map with short keys (`v`, `a`, `t`, `id`, `cr`,
+Wire format: top-level msgpack map with short keys (`v`, `a`, `pg`, `t`, `id`, `cr`,
 `ex`, `sl`); pk/sk stored as raw bytes (BIN), not base64. Achieves ~67% of YAML
 file size across all tray types.
 

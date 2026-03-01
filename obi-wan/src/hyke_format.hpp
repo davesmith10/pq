@@ -15,7 +15,7 @@
 // ------  ----  -----
 //  0       4    Magic: 0x48594B45 ("HYKE")
 //  4       2    Version: 0x0001
-//  6       1    TrayID: 0x01=Level2, 0x02=Level2NIST, 0x03=Level3NIST, 0x04=Level5NIST
+//  6       1    TrayID: 0x01=Level2_25519, 0x02=Level2, 0x03=Level3, 0x04=Level5
 //  7       1    Flags: 0x00 (reserved)
 //  8       4    header_len  (total bytes from offset 0 to end of sig_pq bytes)
 // 12       4    payload_len (bytes of encrypted payload)
@@ -49,20 +49,20 @@ static constexpr char kHykeArmorEnd[]   = "-----END HYKE SIGNED FILE-----";
 
 inline uint8_t tray_id_byte(TrayType t) {
     switch (t) {
-        case TrayType::Level2:     return 0x01;
-        case TrayType::Level2NIST: return 0x02;
-        case TrayType::Level3NIST: return 0x03;
-        case TrayType::Level5NIST: return 0x04;
+        case TrayType::Level2_25519: return 0x01;
+        case TrayType::Level2:       return 0x02;
+        case TrayType::Level3:       return 0x03;
+        case TrayType::Level5:       return 0x04;
         default: throw std::invalid_argument("Unknown TrayType");
     }
 }
 
 inline TrayType tray_type_from_id(uint8_t id) {
     switch (id) {
-        case 0x01: return TrayType::Level2;
-        case 0x02: return TrayType::Level2NIST;
-        case 0x03: return TrayType::Level3NIST;
-        case 0x04: return TrayType::Level5NIST;
+        case 0x01: return TrayType::Level2_25519;
+        case 0x02: return TrayType::Level2;
+        case 0x03: return TrayType::Level3;
+        case 0x04: return TrayType::Level5;
         default: throw std::runtime_error("Unknown HYKE TrayID: " + std::to_string((int)id));
     }
 }
