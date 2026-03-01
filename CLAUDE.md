@@ -2,23 +2,28 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Repository Layout
+## Deps and pq Repository Layout
 
 ```
 Crystals/
-├── kyber/ref/          — Kyber reference implementation
-├── kyber/avx2/         — Kyber AVX2 implementation (not used in v1)
-├── dilithium/ref/      — Dilithium reference implementation
-├── dilithium/avx2/     — Dilithium AVX2 implementation (not used in v1) 
-├── msgpack-c/          — msgpack-c header-only library (vendored, C++ API)
-├── XKCP/               — eXtended Keccak Code Package: libXKCP.so + headers
+├── kyber/ref/          — Kyber reference C source; statically compiled into tools via CMake
+├── kyber/avx2/         — Kyber AVX2 source (not used by the CMake tools)
+├── dilithium/ref/      — Dilithium reference C source; statically compiled via CMake
+├── dilithium/avx2/     — Dilithium AVX2 source (not used by the CMake tools)
+├── msgpack-c/          — msgpack-c header-only library (vendored)
+├── XKCP/               — eXtended Keccak Code Package; pre-built libXKCP.so (obi-wan only)
+├── BLAKE3/             — BLAKE3 source; built + installed to local/ (UUID derivation)
+├── oneTBB/             — oneTBB source; built + installed to local/ (BLAKE3 parallelism)
+├── local/              — Shared install prefix for BLAKE3 + TBB (CMake finds them here)
 └── pq/                 — Main project (git root)
-    ├── include/        — Shared domain headers (tray.hpp)
-    ├── scotty/         — Hybrid PQ+classical tray keygen tool (C++17, CMake)
-    ├── obi-wan/        — Hybrid KEM file encryption tool (C++17, CMake)
-    ├── msgpack/        — Tray binary encoding library + tests (C++17, CMake)
+    ├── include/        — Shared headers (tray.hpp domain model)
+    ├── scotty/         — Hybrid PQ+classical tray keygen tool
+    ├── obi-wan/        — Hybrid KEM file encryption tool
+    ├── msgpack/        — Tray binary encoding library + tests
     ├── misc/           — Utilities (hashpass, etc.)
-    └── static-verify/  — Verification project for static kyber+dilithium libs
+    └── static-verify/  — Standalone project verifying the static Kyber + Dilithium CMake
+                          libraries; links all 8 static targets + randombytes.c, runs KEM
+                          and signature round-trips for all 6 parameter sets
 ```
 
 ## Build Commands
