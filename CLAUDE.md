@@ -6,12 +6,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ```
 Crystals/
-├── kyber/ref/          — Kyber reference implementation + .so files (built separately)
-├── kyber/avx2/         — Kyber AVX2 implementation + .so files (built separately)
-├── dilithium/ref/      — Dilithium reference implementation + .so files (built separately)
-├── dilithium/avx2/     — Dilithium AVX2 implementation + .so files (built separately)
-├── msgpack-c/          — msgpack-c header-only library (vendored, C++ API) ← DO NOT DELETE
-├── XKCP/               — eXtended Keccak Code Package: libXKCP.so + headers ← DO NOT DELETE
+├── kyber/ref/          — Kyber reference implementation
+├── kyber/avx2/         — Kyber AVX2 implementation (not used in v1)
+├── dilithium/ref/      — Dilithium reference implementation
+├── dilithium/avx2/     — Dilithium AVX2 implementation (not used in v1) 
+├── msgpack-c/          — msgpack-c header-only library (vendored, C++ API)
+├── XKCP/               — eXtended Keccak Code Package: libXKCP.so + headers
 └── pq/                 — Main project (git root)
     ├── include/        — Shared domain headers (tray.hpp)
     ├── scotty/         — Hybrid PQ+classical tray keygen tool (C++17, CMake)
