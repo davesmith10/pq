@@ -23,24 +23,21 @@ Crystals/
 
 ## Build Commands
 
-**Build crypto libraries** (only needed once, or after upstream changes):
-```bash
-cd kyber/ref && make shared
-cd kyber/avx2 && make shared
-cd dilithium/ref && make shared
-cd dilithium/avx2 && make shared
-```
+**Kyber and Dilithium** are compiled statically from source via CMake `add_subdirectory` —
+no separate `make shared` step is needed for the tools.
 
 **Build scotty** (hybrid PQ+classical tray keygen):
 ```bash
-cmake -S pq/scotty -B pq/scotty/build
+cmake -S pq/scotty -B pq/scotty/build \
+  -DCMAKE_PREFIX_PATH=/mnt/c/Users/daves/OneDrive/Desktop/Crystals/local
 cmake --build pq/scotty/build -j$(nproc)
 # Binary: pq/scotty/build/scotty
 ```
 
 **Build obi-wan** (hybrid KEM file encryption):
 ```bash
-cmake -S pq/obi-wan -B pq/obi-wan/build
+cmake -S pq/obi-wan -B pq/obi-wan/build \
+  -DCMAKE_PREFIX_PATH=/mnt/c/Users/daves/OneDrive/Desktop/Crystals/local
 cmake --build pq/obi-wan/build -j$(nproc)
 # Binary: pq/obi-wan/build/obi-wan
 ```
@@ -114,13 +111,13 @@ obi-wan has two operation modes: **OBIWAN** (encrypt/decrypt using both KEM slot
 - `obi-wan/src/armor.{hpp,cpp}` — OBIWAN wire format pack/unpack + base64 armor/dearmor
 - `obi-wan/src/base64.{hpp,cpp}` — base64 encode/decode
 
-**XKCP dependency**: `XKCP/bin/x86-64/libXKCP.so` (linked by full path) + headers at
-`XKCP/bin/x86-64/libXKCP.so.headers/` (`SimpleFIPS202.h` for SHAKE256, `SP800-185.h` for KMAC256).
-Do not delete the `XKCP/` directory.
+**XKCP dependency**: `XKCP/bin/x86-64/libXKCP.so` (linked by full path; pre-built, do not
+delete) + headers at `XKCP/bin/x86-64/libXKCP.so.headers/` (`SimpleFIPS202.h` for SHAKE256,
+`SP800-185.h` for KMAC256). This is the only remaining dynamic dependency for obi-wan.
 
-**fips202 linking**: obi-wan now needs both Kyber and Dilithium fips202 namespaces. Both
-`kyber_fips202_obj` and `dilithium_fips202_obj` OBJECT libraries are compiled (identical to
-the scotty pattern) and `-rdynamic` exports their symbols to the loaded `.so` files.
+**fips202 linking**: both `pqcrystals_kyber_fips202_ref` and `pqcrystals_dilithium_fips202_ref`
+are compiled as separate static archives via `add_subdirectory`, each with their own symbol
+namespace. No OBJECT libraries or `-rdynamic` required.
 
 **OBIWAN KDF input construction**:
 - SHAKE256: `SHAKE256(len32(SS_cl)||SS_cl||len32(SS_pq)||SS_pq||len32(CT_cl)||CT_cl||len32(CT_pq)||CT_pq, 32B)`
@@ -153,12 +150,12 @@ scotty generates **hybrid trays** — named bundles of paired PQ+classical key s
 
 **Output modes**: default = YAML stdout; `--out <file>` = binary msgpack + auto-summary to stdout; `--public` = also emit companion public tray (no sk fields, fresh UUID, alias `<name>.pub`).
 
-**scotty fips202 linking strategy**: Both kyber and dilithium ref .so files need `fips202`
-symbols from different namespaces (`pqcrystals_kyber_fips202_ref_*` vs
-`pqcrystals_dilithium_fips202_ref_*`). Since both fips202.so files share the same filename
-(different sonames would clash at runtime), scotty instead compiles both `fips202.c` files
-directly into the binary as CMake OBJECT libraries with different `-I` include paths
-(producing different symbol names), then uses `-rdynamic` to export them to the .so files.
+**scotty fips202 linking strategy**: Both kyber and dilithium need their own `fips202` symbol
+namespace (`pqcrystals_kyber_fips202_ref_*` vs `pqcrystals_dilithium_fips202_ref_*`). This is
+handled cleanly by the static CMake builds: `kyber/ref/CMakeLists.txt` compiles
+`pqcrystals_kyber_fips202_ref` and `dilithium/ref/CMakeLists.txt` compiles
+`pqcrystals_dilithium_fips202_ref` — each with its own `-I` path, producing distinct symbol
+names. No OBJECT libraries or `-rdynamic` required.
 
 ### msgpack Architecture
 `pq/msgpack/src/tray_pack.{hpp,cpp}` is shared between scotty and the standalone library.
@@ -182,13 +179,21 @@ pk/sk are stored as raw bytes (msgpack BIN), not base64. Achieves ~67% of YAML f
 scotty and msgpack builds**. Do not delete `msgpack-c/`. Compile with `-DMSGPACK_NO_BOOST`
 (no Boost needed). `test_from_yaml` also links yaml-cpp and scotty's `base64.cpp`.
 
-### Shared Library Linking Strategy
-Crypto variants are linked into each binary simultaneously (not dynamically dispatched via dlopen). Full `.so` paths are used in `target_link_libraries` to avoid linker collisions between `fips202_ref` and `fips202_avx2` libraries which share identical sonames but different symbol namespaces.
+### Static Linking Strategy
+Kyber and Dilithium are linked **statically** into both scotty and obi-wan via CMake
+`add_subdirectory`. Each build pulls in 8 static targets: 3 Kyber variants + kyber fips202,
+3 Dilithium variants + dilithium fips202. The two fips202 archives occupy different symbol
+namespaces (`pqcrystals_kyber_fips202_ref_*` vs `pqcrystals_dilithium_fips202_ref_*`) and
+do not collide. There are no shared `.so` files from kyber/ref or dilithium/ref at runtime.
 
-`randombytes()` is not exported by any Kyber/Dilithium `.so` — it must be compiled directly into each binary from `kyber/ref/randombytes.c` or `dilithium/ref/randombytes.c`.
+`randombytes()` is not included in any archive — it is compiled directly into each binary
+from `kyber/ref/randombytes.c`.
 
 ### RPATH Setup
-- **Development builds**: RPATH set to absolute paths of the `.so` directories
+- **scotty**: RPATH set to the TBB library directory (derived from the `TBB::tbb` imported
+  target location); no kyber/dilithium `.so` paths needed (all statically linked).
+- **obi-wan**: RPATH set to `XKCP/bin/x86-64/` (for libXKCP.so) and the TBB library dir.
+  Install RPATH uses `$ORIGIN/../lib/obi-wan` (relative, for portable installs).
 
 ### Key Size Constants (from `*_api.hpp`)
 | Level | Public Key | Secret Key | Ciphertext/Sig |
@@ -203,14 +208,16 @@ Crypto variants are linked into each binary simultaneously (not dynamically disp
 (Note: Dilithium sk sizes differ from NIST ML-DSA spec; use values from `dilithium/ref/api.h`)
 
 ## CMakeLists.txt Paths
-- scotty: `cmake -S pq/scotty -B pq/scotty/build` (CMakeLists.txt at `pq/scotty/CMakeLists.txt`)
+- scotty: `cmake -S pq/scotty -B pq/scotty/build -DCMAKE_PREFIX_PATH=<Crystals>/local`
+  - `add_subdirectory(../../kyber/ref)` + `add_subdirectory(../../dilithium/ref)` for 8 static targets
   - includes `../msgpack/src` and `../../msgpack-c/include` for the tray_pack module
-- obi-wan: `cmake -S pq/obi-wan -B pq/obi-wan/build` (CMakeLists.txt at `pq/obi-wan/CMakeLists.txt`)
+  - `find_package(BLAKE3)` / `find_package(TBB)` resolved via `CMAKE_PREFIX_PATH`
+- obi-wan: `cmake -S pq/obi-wan -B pq/obi-wan/build -DCMAKE_PREFIX_PATH=<Crystals>/local`
+  - same `add_subdirectory` static targets as scotty
   - includes `../msgpack/src`, `../../msgpack-c/include`, `../../XKCP/bin/x86-64/libXKCP.so.headers`
-  - links kyber ref + dilithium ref `.so` files and `../../XKCP/bin/x86-64/libXKCP.so` by full path
-  - compiles both `kyber_fips202_obj` and `dilithium_fips202_obj` OBJECT libs (same as scotty)
-- msgpack: `cmake -S pq/msgpack -B pq/msgpack/build` (CMakeLists.txt at `pq/msgpack/CMakeLists.txt`)
-- All use `../../kyber` / `../../dilithium` relative paths to find upstream `.so` files
+  - links `../../XKCP/bin/x86-64/libXKCP.so` by full path (only remaining dynamic crypto dep)
+- msgpack: `cmake -S pq/msgpack -B pq/msgpack/build` (no PREFIX_PATH needed; no BLAKE3/TBB)
+- static-verify: `cmake -S pq/static-verify -B pq/static-verify/build` (no external deps)
 - msgpack and scotty both use `../../msgpack-c/include` and `../include` (for `tray.hpp`)
 
 ## Exit Codes (all tools)

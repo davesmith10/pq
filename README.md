@@ -124,20 +124,34 @@ file size across all tray types.
 
 ## Build
 
-**Prerequisites**: CMake ≥ 3.15, GCC/Clang with C++17, OpenSSL 3, yaml-cpp.
-Kyber and Dilithium ref `.so` files must be built first (one-time):
+**Prerequisites**: CMake ≥ 3.15, GCC/Clang with C++17, OpenSSL 3, yaml-cpp, BLAKE3 (static,
+with oneTBB), and a pre-built `XKCP/bin/x86-64/libXKCP.so` (required by obi-wan only).
+
+Kyber and Dilithium are compiled **statically** from source via CMake `add_subdirectory` —
+no separate `make shared` step is needed. BLAKE3 and oneTBB must be installed to
+`Crystals/local/` first; see `pq/BLAKE3-BUILD.md` for the one-time build procedure.
+
+**Build individual tools** (from the `Crystals/` root; set `CMAKE_PREFIX_PATH` to your
+`Crystals/local/` prefix so CMake can find BLAKE3 and TBB):
 
 ```bash
-cd kyber/ref     && make shared
-cd dilithium/ref && make shared
+cmake -S pq/scotty  -B pq/scotty/build  -DCMAKE_PREFIX_PATH=<Crystals>/local
+cmake --build pq/scotty/build -j$(nproc)
+
+cmake -S pq/obi-wan -B pq/obi-wan/build -DCMAKE_PREFIX_PATH=<Crystals>/local
+cmake --build pq/obi-wan/build -j$(nproc)
+
+cmake -S pq/msgpack -B pq/msgpack/build
+cmake --build pq/msgpack/build -j$(nproc)
 ```
 
-**Build individual tools** (from the `Crystals/` root):
+**static-verify** — one-time check that the static Kyber + Dilithium libraries link and
+run correctly (no external dependencies):
 
 ```bash
-cmake -S pq/scotty    -B pq/scotty/build    && cmake --build pq/scotty/build    -j$(nproc)
-cmake -S pq/obi-wan   -B pq/obi-wan/build   && cmake --build pq/obi-wan/build   -j$(nproc)
-cmake -S pq/msgpack   -B pq/msgpack/build   && cmake --build pq/msgpack/build   -j$(nproc)
+cmake -S pq/static-verify -B pq/static-verify/build
+cmake --build pq/static-verify/build -j$(nproc)
+./pq/static-verify/build/test_static_pq   # all 6 levels should print OK
 ```
 
 ## Exit Codes
@@ -155,17 +169,22 @@ All tools use the same exit code convention:
 
 ```
 Crystals/
-├── kyber/ref/          — Kyber reference implementation + .so files
-├── kyber/avx2/         — Kyber AVX2 implementation + .so files
-├── dilithium/ref/      — Dilithium reference implementation + .so files
-├── dilithium/avx2/     — Dilithium AVX2 implementation + .so files
+├── kyber/ref/          — Kyber reference C source; statically compiled into tools via CMake
+├── kyber/avx2/         — Kyber AVX2 source (not used by the CMake tools)
+├── dilithium/ref/      — Dilithium reference C source; statically compiled via CMake
+├── dilithium/avx2/     — Dilithium AVX2 source (not used by the CMake tools)
 ├── msgpack-c/          — msgpack-c header-only library (vendored)
-├── XKCP/               — eXtended Keccak Code Package (SHAKE256, KMAC256)
+├── XKCP/               — eXtended Keccak Code Package; pre-built libXKCP.so (obi-wan only)
+├── BLAKE3/             — BLAKE3 source; built + installed to local/ (UUID derivation)
+├── oneTBB/             — oneTBB source; built + installed to local/ (BLAKE3 parallelism)
+├── local/              — Shared install prefix for BLAKE3 + TBB (CMake finds them here)
 └── pq/                 — Main project (git root)
     ├── include/        — Shared headers (tray.hpp domain model)
     ├── scotty/         — Hybrid PQ+classical tray keygen tool
     ├── obi-wan/        — Hybrid KEM file encryption tool
     ├── msgpack/        — Tray binary encoding library + tests
     ├── misc/           — Utilities (hashpass, etc.)
-    └── static-verify/  — Verification project for static kyber+dilithium libs
+    └── static-verify/  — Standalone project verifying the static Kyber + Dilithium CMake
+                          libraries; links all 8 static targets + randombytes.c, runs KEM
+                          and signature round-trips for all 6 parameter sets
 ```
