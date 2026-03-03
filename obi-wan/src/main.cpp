@@ -7,6 +7,7 @@
 #include "symmetric.hpp"
 #include "armor.hpp"
 #include "hyke_format.hpp"
+#include "pw_crypt.hpp"
 
 #include <iostream>
 #include <fstream>
@@ -26,15 +27,19 @@ static void print_usage(const char* prog) {
         "  " << prog << " decrypt --tray <file> <target-file>\n"
         "  " << prog << " sign    --tray <file> <target-file>\n"
         "  " << prog << " verify  --tray <file> <target-file>\n"
+        "  " << prog << " pwencrypt [--level 512|768|1024] [--scrypt-n 20] <infile> <outfile>\n"
+        "  " << prog << " pwdecrypt <infile> <outfile>\n"
         "\n"
         "  --tray   Tray file (YAML or msgpack, auto-detected)\n"
         "  --kdf    Key derivation function (encrypt only): SHAKE (default) or KMAC\n"
         "  --cipher Symmetric cipher (encrypt only): AES-256-GCM (default) or ChaCha20\n"
         "\n"
-        "  encrypt: reads <target-file>, writes OBIWAN armored ciphertext to stdout\n"
-        "  decrypt: reads armored <target-file>, writes plaintext to stdout\n"
-        "  sign:    encrypt-and-sign using all 4 tray slots; writes HYKE armor to stdout\n"
-        "  verify:  verify both signatures and decrypt HYKE file; writes plaintext to stdout\n"
+        "  encrypt:   reads <target-file>, writes OBIWAN armored ciphertext to stdout\n"
+        "  decrypt:   reads armored <target-file>, writes plaintext to stdout\n"
+        "  sign:      encrypt-and-sign using all 4 tray slots; writes HYKE armor to stdout\n"
+        "  verify:    verify both signatures and decrypt HYKE file; writes plaintext to stdout\n"
+        "  pwencrypt: password-based encryption (ephemeral Kyber + scrypt); no tray required\n"
+        "  pwdecrypt: decrypt a pwencrypt file\n"
         "\n"
         "Exit codes: 0=ok, 1=usage, 2=crypto, 3=I/O\n";
 }
@@ -583,6 +588,9 @@ int main(int argc, char* argv[]) {
         print_usage(argv[0]);
         return 0;
     }
+
+    if (cmd == "pwencrypt") return cmd_pwencrypt(argc - 1, argv + 1);
+    if (cmd == "pwdecrypt") return cmd_pwdecrypt(argc - 1, argv + 1);
 
     if (cmd != "encrypt" && cmd != "decrypt" && cmd != "sign" && cmd != "verify") {
         std::cerr << "Error: unknown command '" << cmd << "'\n";

@@ -4,7 +4,8 @@ C++17 CLI tools and libraries for hybrid PQ+classical key management.
 Built against the CRYSTALS reference implementations from
 [pq-crystals](https://github.com/pq-crystals).
 
-See [ALGORITHMS.md](ALGORITHMS.md) for details on the OBIWAN and HYKE 'encryption' and 'encrypt-then-sign' hybrid algorithms. 
+See [ALGORITHMS.md](ALGORITHMS.md) for details on the OBIWAN and HYKE hybrid algorithms,
+and [PASSWORD-ENC.md](PASSWORD-ENC.md) for the PWENC password-based encryption scheme.
 
 ## Tools
 
@@ -59,6 +60,31 @@ Output armor: `-----BEGIN/END OBIWAN ENCRYPTED FILE-----`
 
 Wire format: `"OBIWAN01"` (8B) + KDF byte + cipher byte + `len32+CT_classical` +
 `len32+CT_pq` + `nonce(12) || tag(16) || ciphertext`
+
+#### pwencrypt / pwdecrypt (PWENC)
+
+Password-based encryption without a tray. An **ephemeral** Kyber keypair is generated
+fresh for each encryption; the Kyber secret key is password-wrapped via scrypt, and the
+plaintext is encrypted with the Kyber shared secret. No pre-shared keys or tray files are
+required.
+
+```
+obi-wan pwencrypt [--level 512|768|1024] [--scrypt-n 20] <infile> <outfile>
+obi-wan pwdecrypt <infile> <outfile>
+```
+
+- `--level`: Kyber parameter set — `512`, `768` (default), or `1024`
+- `--scrypt-n`: scrypt work factor as a log₂ exponent, `N = 2^n` (default 20, range 16–22)
+- Password is prompted interactively; `pwencrypt` prompts twice for confirmation
+- All decryption failures produce a single generic error (no oracle distinguishing
+  wrong password from tampered ciphertext)
+
+Output armor: `-----BEGIN/END OBIWAN PW ENCRYPTED FILE-----`
+
+Security is designed so that recovering the plaintext requires both a break of scrypt
+(to recover the ephemeral Kyber secret key) **and** a break of Kyber's IND-CCA hardness
+(to recover the shared secret without the secret key). See [PASSWORD-ENC.md](PASSWORD-ENC.md)
+for full design rationale and wire format.
 
 #### sign / verify (HYKE)
 
@@ -127,7 +153,9 @@ file size across all tray types.
 ## Build
 
 **Prerequisites**: CMake ≥ 3.15, GCC/Clang with C++17, OpenSSL 3, yaml-cpp, BLAKE3 (static,
-with oneTBB), and a pre-built `XKCP/bin/x86-64/libXKCP.so` (required by obi-wan only).
+with oneTBB), a pre-built `XKCP/bin/x86-64/libXKCP.so` (required by obi-wan only), and
+a built `scrypt/` tree at `Crystals/scrypt/` (required by obi-wan's `pwencrypt`/`pwdecrypt`
+commands — run `./configure && make` inside the scrypt directory once).
 
 Kyber and Dilithium are compiled **statically** from source via CMake `add_subdirectory` —
 no separate `make shared` step is needed. BLAKE3 and oneTBB must be installed to

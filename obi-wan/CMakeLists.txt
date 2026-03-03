@@ -38,6 +38,18 @@ set(CMAKE_BUILD_RPATH "${XKCP_LIBDIR}" "${_tbb_libdir}")
 set(CMAKE_INSTALL_RPATH "$ORIGIN/../lib/obi-wan")
 set(CMAKE_INSTALL_RPATH_USE_LINK_PATH FALSE)
 
+# ── scrypt ────────────────────────────────────────────────────────────────────
+set(SCRYPT_DIR "${CMAKE_SOURCE_DIR}/../../scrypt")
+get_filename_component(SCRYPT_DIR_ABS "${SCRYPT_DIR}" ABSOLUTE)
+
+set(SCRYPT_SOURCES
+    "${SCRYPT_DIR_ABS}/lib-platform/crypto/crypto_scrypt.c"
+    "${SCRYPT_DIR_ABS}/lib/crypto/crypto_scrypt_smix.c"
+    "${SCRYPT_DIR_ABS}/libcperciva/alg/sha256.c"
+    "${SCRYPT_DIR_ABS}/libcperciva/util/insecure_memzero.c"
+    "${SCRYPT_DIR_ABS}/libcperciva/util/warnp.c"
+)
+
 # ── randombytes ───────────────────────────────────────────────────────────────
 set(RANDOMBYTES_SRC "${KYBER_REF_DIR_ABS}/randombytes.c")
 
@@ -54,22 +66,31 @@ set(SOURCES
     src/tray_reader.cpp
     src/armor.cpp
     src/base64.cpp
+    src/pw_crypt.cpp
     "${MSGPACK_SRC}/tray_pack.cpp"
     ${RANDOMBYTES_SRC}
+    ${SCRYPT_SOURCES}
 )
 
 add_executable(obi-wan ${SOURCES})
 
 target_include_directories(obi-wan PRIVATE
     src
-    "${CMAKE_SOURCE_DIR}/../include"   # tray.hpp
-    "${KYBER_REF_DIR_ABS}"             # randombytes.h
-    "${XKCP_INC}"                      # SimpleFIPS202.h, SP800-185.h
-    "${MSGPACK_SRC}"                   # tray_pack.hpp
-    "${MSGPACK_INC}"                   # msgpack-c header-only
+    "${CMAKE_SOURCE_DIR}/../include"        # tray.hpp
+    "${KYBER_REF_DIR_ABS}"                 # randombytes.h
+    "${XKCP_INC}"                          # SimpleFIPS202.h, SP800-185.h
+    "${MSGPACK_SRC}"                       # tray_pack.hpp
+    "${MSGPACK_INC}"                       # msgpack-c header-only
+    "${SCRYPT_DIR_ABS}"                          # config.h
+    "${SCRYPT_DIR_ABS}/lib-platform"             # platform.h
+    "${SCRYPT_DIR_ABS}/lib/crypto"               # crypto_scrypt_smix.h
+    "${SCRYPT_DIR_ABS}/libcperciva/alg"          # sha256.h, sysendian.h
+    "${SCRYPT_DIR_ABS}/libcperciva/util"         # warnp.h, insecure_memzero.h
+    "${SCRYPT_DIR_ABS}/libcperciva/cpusupport"   # cpusupport.h
+    "${SCRYPT_DIR_ABS}/libscrypt-kdf"            # scrypt-kdf.h
 )
 
-target_compile_definitions(obi-wan PRIVATE MSGPACK_NO_BOOST)
+target_compile_definitions(obi-wan PRIVATE MSGPACK_NO_BOOST HAVE_CONFIG_H)
 
 # ── Link ──────────────────────────────────────────────────────────────────────
 target_link_libraries(obi-wan PRIVATE
@@ -82,6 +103,9 @@ target_link_libraries(obi-wan PRIVATE
     pqcrystals_dilithium5_ref
     pqcrystals_dilithium_fips202_ref
     "${XKCP_LIBDIR}/libXKCP.so"
+    "${SCRYPT_DIR_ABS}/.libs/libscrypt_sse2.a"
+    "${SCRYPT_DIR_ABS}/.libs/libcperciva_cpusupport_detect.a"
+    "${SCRYPT_DIR_ABS}/.libs/libcperciva_shani.a"
     BLAKE3::blake3
     TBB::tbb
     OpenSSL::Crypto

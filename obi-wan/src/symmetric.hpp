@@ -13,9 +13,11 @@ static constexpr int AEAD_TAG_LEN   = 16;
 
 // ── AES-256-GCM ──────────────────────────────────────────────────────────────
 
-inline std::vector<uint8_t> aes256gcm_encrypt(
+// AAD-capable variant. aad may be nullptr with aad_len=0 for no AAD.
+inline std::vector<uint8_t> aes256gcm_encrypt_aad(
     const uint8_t key[32],
-    const std::vector<uint8_t>& plaintext)
+    const std::vector<uint8_t>& plaintext,
+    const uint8_t* aad, size_t aad_len)
 {
     uint8_t nonce[AEAD_NONCE_LEN];
     if (RAND_bytes(nonce, AEAD_NONCE_LEN) != 1)
@@ -29,6 +31,14 @@ inline std::vector<uint8_t> aes256gcm_encrypt(
         EVP_EncryptInit_ex(ctx, nullptr, nullptr, key, nonce) != 1) {
         EVP_CIPHER_CTX_free(ctx);
         throw std::runtime_error("AES-256-GCM encrypt init failed");
+    }
+
+    if (aad && aad_len > 0) {
+        int aad_out = 0;
+        if (EVP_EncryptUpdate(ctx, nullptr, &aad_out, aad, (int)aad_len) != 1) {
+            EVP_CIPHER_CTX_free(ctx);
+            throw std::runtime_error("AES-256-GCM AAD inject failed");
+        }
     }
 
     std::vector<uint8_t> ct(plaintext.size());
@@ -62,9 +72,10 @@ inline std::vector<uint8_t> aes256gcm_encrypt(
     return out;
 }
 
-inline std::vector<uint8_t> aes256gcm_decrypt(
+inline std::vector<uint8_t> aes256gcm_decrypt_aad(
     const uint8_t key[32],
-    const std::vector<uint8_t>& nonce_tag_ct)
+    const std::vector<uint8_t>& nonce_tag_ct,
+    const uint8_t* aad, size_t aad_len)
 {
     if (nonce_tag_ct.size() < (size_t)(AEAD_NONCE_LEN + AEAD_TAG_LEN))
         throw std::runtime_error("AES-256-GCM input too short");
@@ -82,6 +93,14 @@ inline std::vector<uint8_t> aes256gcm_decrypt(
         EVP_DecryptInit_ex(ctx, nullptr, nullptr, key, nonce) != 1) {
         EVP_CIPHER_CTX_free(ctx);
         throw std::runtime_error("AES-256-GCM decrypt init failed");
+    }
+
+    if (aad && aad_len > 0) {
+        int aad_out = 0;
+        if (EVP_DecryptUpdate(ctx, nullptr, &aad_out, aad, (int)aad_len) != 1) {
+            EVP_CIPHER_CTX_free(ctx);
+            throw std::runtime_error("AES-256-GCM AAD inject failed");
+        }
     }
 
     std::vector<uint8_t> pt(ct_len);
@@ -107,6 +126,20 @@ inline std::vector<uint8_t> aes256gcm_decrypt(
 
     pt.resize((size_t)(len + flen));
     return pt;
+}
+
+inline std::vector<uint8_t> aes256gcm_encrypt(
+    const uint8_t key[32],
+    const std::vector<uint8_t>& plaintext)
+{
+    return aes256gcm_encrypt_aad(key, plaintext, nullptr, 0);
+}
+
+inline std::vector<uint8_t> aes256gcm_decrypt(
+    const uint8_t key[32],
+    const std::vector<uint8_t>& nonce_tag_ct)
+{
+    return aes256gcm_decrypt_aad(key, nonce_tag_ct, nullptr, 0);
 }
 
 // ── ChaCha20-Poly1305 ─────────────────────────────────────────────────────────
