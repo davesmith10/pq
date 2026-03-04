@@ -5,6 +5,7 @@
 /obi-wan/build/
 /msgpack/build/
 /static-verify/build/
+/libcrystals/build/
 
 # Prerequisites
 *.d
