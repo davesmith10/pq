@@ -64,6 +64,7 @@ add_library(crystals STATIC
     src/dilithium_sig.cpp
     src/armor.cpp
     src/pw_crypt.cpp
+    src/token_cmd.cpp
     "${KYBER_REF_DIR_ABS}/randombytes.c"
     ${SCRYPT_SOURCES}
 )

@@ -429,6 +429,117 @@ static void test_pw_wire_format() {
     }
 }
 
+// ── Section 12: token wire format ─────────────────────────────────────────────
+
+static void test_token_format() {
+    std::printf("=== Section 12: token wire format ===\n");
+
+    // Pack/unpack round-trip
+    {
+        Token tok;
+        tok.data = {0x68, 0x65, 0x6C, 0x6C, 0x6F};  // "hello"
+        tok.issued_at  = 1700000000;
+        tok.expires_at = 1700003600;
+        tok.algorithm  = kTokenAlgECDSAP256;
+        std::memset(tok.tray_uuid, 0xAB, 16);
+        tok.signature.assign(64, 0x55);  // fake 64-byte sig
+
+        auto wire = token_pack(tok);
+        Token rt = token_unpack(wire);
+
+        CHECK(rt.data == tok.data);
+        CHECK(rt.issued_at  == tok.issued_at);
+        CHECK(rt.expires_at == tok.expires_at);
+        CHECK(rt.algorithm  == tok.algorithm);
+        CHECK(std::memcmp(rt.tray_uuid, tok.tray_uuid, 16) == 0);
+        CHECK(rt.signature  == tok.signature);
+
+        std::printf("  pack/unpack round-trip: OK\n");
+    }
+
+    // Armor/dearmor round-trip
+    {
+        Token tok;
+        tok.data = {0x74, 0x65, 0x73, 0x74};  // "test"
+        tok.issued_at  = 1000000000;
+        tok.expires_at = 1000001000;
+        tok.algorithm  = kTokenAlgECDSAP256;
+        std::memset(tok.tray_uuid, 0x12, 16);
+        tok.signature.assign(64, 0x77);
+
+        auto wire = token_pack(tok);
+        std::string armored = token_armor(wire);
+
+        // Must end with '\n'
+        CHECK(!armored.empty() && armored.back() == '\n');
+
+        auto wire2 = token_dearmor(armored);
+        CHECK(wire2 == wire);
+
+        std::printf("  armor/dearmor round-trip: OK\n");
+    }
+
+    // token_unpack rejects bad magic
+    {
+        Token tok;
+        tok.data = {0x41};
+        tok.issued_at  = 1000;
+        tok.expires_at = 2000;
+        tok.algorithm  = kTokenAlgECDSAP256;
+        std::memset(tok.tray_uuid, 0x00, 16);
+        tok.signature.assign(64, 0x00);
+
+        auto wire = token_pack(tok);
+        wire[0] ^= 0xFF;  // corrupt magic
+        CHECK_THROWS(token_unpack(wire));
+
+        std::printf("  bad magic rejected: OK\n");
+    }
+
+    // token_unpack rejects issued_at > expires_at
+    {
+        Token tok;
+        tok.data = {0x41};
+        tok.issued_at  = 2000;
+        tok.expires_at = 1000;  // expires before issued
+        tok.algorithm  = kTokenAlgECDSAP256;
+        std::memset(tok.tray_uuid, 0x00, 16);
+        tok.signature.assign(64, 0x00);
+
+        // Build wire manually (skip token_pack which doesn't validate)
+        auto canonical = token_canonical_bytes(tok);
+        std::vector<uint8_t> wire;
+        wire.insert(wire.end(), canonical.begin(), canonical.end());
+        // SIG_LEN
+        wire.push_back(0x00); wire.push_back(0x00);
+        wire.push_back(0x00); wire.push_back(0x40);
+        wire.insert(wire.end(), 64, 0x00);
+        CHECK_THROWS(token_unpack(wire));
+
+        std::printf("  issued_at > expires_at rejected: OK\n");
+    }
+
+    // token_unpack rejects wrong SIG_LEN
+    {
+        Token tok;
+        tok.data = {0x41};
+        tok.issued_at  = 1000;
+        tok.expires_at = 2000;
+        tok.algorithm  = kTokenAlgECDSAP256;
+        std::memset(tok.tray_uuid, 0x00, 16);
+        tok.signature.assign(64, 0x00);
+
+        auto wire = token_pack(tok);
+        // Corrupt the SIG_LEN field (last 68 bytes: 4 len + 64 sig)
+        // SIG_LEN starts at wire.size()-68
+        size_t sig_len_offset = wire.size() - 68;
+        wire[sig_len_offset + 3] = 0x20;  // change 64 → 32
+        CHECK_THROWS(token_unpack(wire));
+
+        std::printf("  wrong SIG_LEN rejected: OK\n");
+    }
+}
+
 // ── main ──────────────────────────────────────────────────────────────────────
 
 int main() {
@@ -447,6 +558,7 @@ int main() {
         test_obiwan_armor();
         test_symmetric();
         test_pw_wire_format();
+        test_token_format();
     } catch (const std::exception& e) {
         std::fprintf(stderr, "UNCAUGHT EXCEPTION: %s\n", e.what());
         return 1;

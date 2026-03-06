@@ -36,3 +36,5 @@
 #include <crystals/hyke_format.hpp>
 #include <crystals/pw_format.hpp>
 #include <crystals/pw_crypt.hpp>
+#include <crystals/token_format.hpp>
+#include <crystals/token_cmd.hpp>

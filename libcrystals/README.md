@@ -578,6 +578,68 @@ std::string          armor_pw  (const std::vector<uint8_t>& wire);
 std::vector<uint8_t> dearmor_pw(const std::string& text);
 ```
 
+#### Token wire format — `crystals/token_format.hpp`, `crystals/token_cmd.hpp`
+
+Single-use bearer token: data payload signed with ECDSA P-256 (requires a `level2` tray).
+
+```
+Wire layout:
+  "obi-wan\0"   8 bytes  magic
+  version       2 bytes  0x01 0x00
+  TLV 0x01      data (1–256 bytes)
+  TLV 0x02      issued_at  (8 bytes int64 BE Unix epoch)
+  TLV 0x03      expires_at (8 bytes int64 BE Unix epoch)
+  TLV 0x04      tray_uuid  (16 bytes binary UUID)
+  TLV 0x05      algorithm  (1 byte: 0x03 = ECDSA-P256-SHA256 — only valid value; 0x01/0x02 reserved)
+  SIG_LEN       4 bytes BE uint32 (= 64 for ECDSA P-256)
+  signature     SIG_LEN bytes
+```
+
+Signed region: `magic(8) || version(2) || TLV[0x01..0x05]` (no sig trailer).
+
+```cpp
+#include <crystals/token_format.hpp>
+
+struct Token {
+    std::vector<uint8_t> data;
+    int64_t issued_at  = 0;
+    int64_t expires_at = 0;
+    uint8_t tray_uuid[16] = {};
+    uint8_t algorithm  = kTokenAlgECDSAP256;  // 0x03
+    std::vector<uint8_t> signature;
+};
+
+// Compute the signed region (magic + version + 5 TLVs, no sig trailer).
+std::vector<uint8_t> token_canonical_bytes(const Token& tok);
+
+// Serialize to full wire bytes (canonical + SIG_LEN + signature).
+std::vector<uint8_t> token_pack(const Token& tok);
+
+// Deserialize wire bytes. Throws std::runtime_error on bad magic, ordering,
+// invalid algorithm, issued_at > expires_at, or wrong SIG_LEN.
+Token token_unpack(const std::vector<uint8_t>& wire);
+
+// Armor: base64(wire) + '\n'
+std::string          token_armor  (const std::vector<uint8_t>& wire);
+
+// Dearmor: strips whitespace/newlines, then base64-decodes.
+std::vector<uint8_t> token_dearmor(const std::string& text);
+```
+
+CLI-level commands (require a loaded tray and OpenSSL):
+
+```cpp
+#include <crystals/token_cmd.hpp>
+
+// Generate a signed token with data_str payload and ttl_secs lifetime.
+// Requires a level2 tray with an ECDSA P-256 sk. Writes armored token to stdout.
+void cmd_gentok(const std::string& tray_path, const std::string& data_str, int64_t ttl_secs);
+
+// Validate an armored token: checks time bounds, UUID match, and ECDSA P-256 signature.
+// Requires a level2 tray. Writes the data payload to stdout on success. Exits non-zero on any failure.
+void cmd_valtok(const std::string& tray_path, const std::string& token_file);
+```
+
 ---
 
 ### Utilities

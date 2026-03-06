@@ -67,6 +67,7 @@ set(SOURCES
     src/armor.cpp
     src/base64.cpp
     src/pw_crypt.cpp
+    src/token_cmd.cpp
     "${MSGPACK_SRC}/tray_pack.cpp"
     ${RANDOMBYTES_SRC}
     ${SCRYPT_SOURCES}

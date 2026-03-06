@@ -18,6 +18,10 @@
 #include <stdexcept>
 #include <openssl/rand.h>
 
+// Forward declarations for token commands (token_cmd.cpp)
+void cmd_gentok(const std::string& tray_path, const std::string& data_str, int64_t ttl_secs);
+void cmd_valtok(const std::string& tray_path, const std::string& token_file);
+
 // ── Usage ─────────────────────────────────────────────────────────────────────
 
 static void print_usage(const char* prog) {
@@ -27,17 +31,23 @@ static void print_usage(const char* prog) {
         "  " << prog << " decrypt --tray <file> <target-file>\n"
         "  " << prog << " sign    --tray <file> <target-file>\n"
         "  " << prog << " verify  --tray <file> <target-file>\n"
+        "  " << prog << " gentok  --tray <file> --data <string> [--ttl <seconds>]\n"
+        "  " << prog << " valtok  --tray <file> [token-file]\n"
         "  " << prog << " pwencrypt [--level 512|768|1024] [--scrypt-n 20] <infile> <outfile>\n"
         "  " << prog << " pwdecrypt <infile> <outfile>\n"
         "\n"
         "  --tray   Tray file (YAML or msgpack, auto-detected)\n"
         "  --kdf    Key derivation function (encrypt only): SHAKE (default) or KMAC\n"
         "  --cipher Symmetric cipher (encrypt only): AES-256-GCM (default) or ChaCha20\n"
+        "  --data   Token payload string (gentok only, 1–256 bytes)\n"
+        "  --ttl    Token lifetime in seconds (gentok only, default 86400)\n"
         "\n"
         "  encrypt:   reads <target-file>, writes OBIWAN armored ciphertext to stdout\n"
         "  decrypt:   reads armored <target-file>, writes plaintext to stdout\n"
         "  sign:      encrypt-and-sign using all 4 tray slots; writes HYKE armor to stdout\n"
         "  verify:    verify both signatures and decrypt HYKE file; writes plaintext to stdout\n"
+        "  gentok:    generate a signed token; requires level2 tray; writes armor to stdout\n"
+        "  valtok:    validate a token; writes data to stdout; reads stdin if no file given\n"
         "  pwencrypt: password-based encryption (ephemeral Kyber + scrypt); no tray required\n"
         "  pwdecrypt: decrypt a pwencrypt file\n"
         "\n"
@@ -591,6 +601,52 @@ int main(int argc, char* argv[]) {
 
     if (cmd == "pwencrypt") return cmd_pwencrypt(argc - 1, argv + 1);
     if (cmd == "pwdecrypt") return cmd_pwdecrypt(argc - 1, argv + 1);
+
+    // ── gentok / valtok ───────────────────────────────────────────────────────
+    if (cmd == "gentok") {
+        std::string tray_path, data_str;
+        int64_t ttl_secs = 86400;
+        for (int i = 2; i < argc; ++i) {
+            if (std::strcmp(argv[i], "--tray") == 0) {
+                if (++i >= argc) { std::cerr << "Error: --tray requires a filename\n"; return 1; }
+                tray_path = argv[i];
+            } else if (std::strcmp(argv[i], "--data") == 0) {
+                if (++i >= argc) { std::cerr << "Error: --data requires a value\n"; return 1; }
+                data_str = argv[i];
+            } else if (std::strcmp(argv[i], "--ttl") == 0) {
+                if (++i >= argc) { std::cerr << "Error: --ttl requires a value\n"; return 1; }
+                try { ttl_secs = (int64_t)std::stoll(argv[i]); }
+                catch (...) { std::cerr << "Error: --ttl value is not a valid integer\n"; return 1; }
+                if (ttl_secs <= 0) { std::cerr << "Error: --ttl must be positive\n"; return 1; }
+            } else {
+                std::cerr << "Error: unknown option '" << argv[i] << "'\n"; return 1;
+            }
+        }
+        if (tray_path.empty()) { std::cerr << "Error: --tray is required\n"; return 1; }
+        if (data_str.empty())  { std::cerr << "Error: --data is required\n"; return 1; }
+        cmd_gentok(tray_path, data_str, ttl_secs);
+        return 0;
+    }
+
+    if (cmd == "valtok") {
+        std::string tray_path, token_file;
+        for (int i = 2; i < argc; ++i) {
+            if (std::strcmp(argv[i], "--tray") == 0) {
+                if (++i >= argc) { std::cerr << "Error: --tray requires a filename\n"; return 1; }
+                tray_path = argv[i];
+            } else if (argv[i][0] == '-') {
+                std::cerr << "Error: unknown option '" << argv[i] << "'\n"; return 1;
+            } else {
+                if (!token_file.empty()) {
+                    std::cerr << "Error: unexpected argument '" << argv[i] << "'\n"; return 1;
+                }
+                token_file = argv[i];
+            }
+        }
+        if (tray_path.empty()) { std::cerr << "Error: --tray is required\n"; return 1; }
+        cmd_valtok(tray_path, token_file);
+        return 0;
+    }
 
     if (cmd != "encrypt" && cmd != "decrypt" && cmd != "sign" && cmd != "verify") {
         std::cerr << "Error: unknown command '" << cmd << "'\n";
