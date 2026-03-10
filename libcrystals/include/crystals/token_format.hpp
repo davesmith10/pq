@@ -20,8 +20,9 @@
 // Tag 0x03: Expires At  (8 bytes int64 BE Unix epoch)
 // Tag 0x04: Tray ID     (16 bytes binary UUID)
 // Tag 0x05: Algorithm   (1 byte: 0x03 = ECDSA-P256-SHA256)
+// Tag 0x06: Token UUID  (16 bytes random UUID v4)
 //
-// Signed bytes: MAGIC(8) || VERSION(2) || TLV[0x01..0x05] (no sig trailer)
+// Signed bytes: MAGIC(8) || VERSION(2) || TLV[0x01..0x06] (no sig trailer)
 // Algorithm 0x03 (ECDSA-P256-SHA256) → SIG_LEN = 64 bytes
 
 static constexpr uint8_t kTokenMagic[8] = {'o','b','i','-','w','a','n','\0'};
@@ -33,7 +34,8 @@ struct Token {
     std::vector<uint8_t> data;
     int64_t issued_at  = 0;
     int64_t expires_at = 0;
-    uint8_t tray_uuid[16] = {};
+    uint8_t tray_uuid[16]  = {};
+    uint8_t token_uuid[16] = {};
     uint8_t algorithm  = kTokenAlgECDSAP256;
     std::vector<uint8_t> signature;
 };
@@ -97,11 +99,11 @@ static inline void tok_push_tlv(std::vector<uint8_t>& buf, uint8_t tag,
     buf.insert(buf.end(), value, value + len);
 }
 
-// ── Canonical bytes (signed region: magic+version+5 TLVs, no sig trailer) ────
+// ── Canonical bytes (signed region: magic+version+6 TLVs, no sig trailer) ────
 
 inline std::vector<uint8_t> token_canonical_bytes(const Token& tok) {
     std::vector<uint8_t> buf;
-    buf.reserve(10 + (3 + tok.data.size()) + (3 + 8) + (3 + 8) + (3 + 16) + (3 + 1));
+    buf.reserve(10 + (3 + tok.data.size()) + (3 + 8) + (3 + 8) + (3 + 16) + (3 + 1) + (3 + 16));
 
     // Magic (8 bytes)
     buf.insert(buf.end(), kTokenMagic, kTokenMagic + 8);
@@ -129,6 +131,9 @@ inline std::vector<uint8_t> token_canonical_bytes(const Token& tok) {
 
     // TLV 0x05: algorithm (1 byte)
     tok_push_tlv(buf, 0x05, &tok.algorithm, 1);
+
+    // TLV 0x06: token_uuid (16 bytes)
+    tok_push_tlv(buf, 0x06, tok.token_uuid, 16);
 
     return buf;
 }
@@ -181,8 +186,8 @@ inline Token token_unpack(const std::vector<uint8_t>& wire) {
 
         uint8_t tag = *p;
 
-        // If all 5 tags seen, stop TLV parsing
-        if (seen_tags.size() == 5) break;
+        // If all 6 tags seen, stop TLV parsing
+        if (seen_tags.size() == 6) break;
 
         p++; // consume tag
         uint16_t len = tok_read_u16be(p); p += 2;
@@ -234,6 +239,12 @@ inline Token token_unpack(const std::vector<uint8_t>& wire) {
                 token_sig_size(tok.algorithm); // throws if unknown
                 break;
 
+            case 0x06: // token_uuid
+                if (len != 16)
+                    throw std::runtime_error("token: tag 0x06 must be 16 bytes");
+                std::memcpy(tok.token_uuid, p, 16);
+                break;
+
             default:
                 throw std::runtime_error("token: unknown tag 0x" + std::to_string((int)tag));
         }
@@ -243,8 +254,8 @@ inline Token token_unpack(const std::vector<uint8_t>& wire) {
         expected_tag++;
     }
 
-    // Verify all 5 mandatory tags present
-    for (uint8_t t = 0x01; t <= 0x05; ++t) {
+    // Verify all 6 mandatory tags present
+    for (uint8_t t = 0x01; t <= 0x06; ++t) {
         if (!seen_tags.count(t))
             throw std::runtime_error("token: missing mandatory tag 0x" + std::to_string((int)t));
     }

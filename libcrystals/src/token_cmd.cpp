@@ -3,6 +3,8 @@
 #include <crystals/ec_sig.hpp>
 #include <crystals/hyke_format.hpp>   // for parse_uuid()
 
+#include <openssl/rand.h>
+
 #include <iostream>
 #include <fstream>
 #include <sstream>
@@ -88,6 +90,14 @@ void cmd_gentok(const std::string& tray_path,
         std::cerr << "Error: failed to parse tray UUID: " << e.what() << "\n";
         std::exit(2);
     }
+
+    // Generate token UUID v4
+    if (RAND_bytes(tok.token_uuid, 16) != 1) {
+        std::cerr << "Error: failed to generate token UUID\n";
+        std::exit(2);
+    }
+    tok.token_uuid[6] = (tok.token_uuid[6] & 0x0F) | 0x40;  // version 4
+    tok.token_uuid[8] = (tok.token_uuid[8] & 0x3F) | 0x80;  // RFC 4122 variant
 
     // Sign canonical bytes
     auto canonical = token_canonical_bytes(tok);

@@ -442,6 +442,7 @@ static void test_token_format() {
         tok.expires_at = 1700003600;
         tok.algorithm  = kTokenAlgECDSAP256;
         std::memset(tok.tray_uuid, 0xAB, 16);
+        std::memset(tok.token_uuid, 0xCD, 16);
         tok.signature.assign(64, 0x55);  // fake 64-byte sig
 
         auto wire = token_pack(tok);
@@ -452,6 +453,7 @@ static void test_token_format() {
         CHECK(rt.expires_at == tok.expires_at);
         CHECK(rt.algorithm  == tok.algorithm);
         CHECK(std::memcmp(rt.tray_uuid, tok.tray_uuid, 16) == 0);
+        CHECK(std::memcmp(rt.token_uuid, tok.token_uuid, 16) == 0);
         CHECK(rt.signature  == tok.signature);
 
         std::printf("  pack/unpack round-trip: OK\n");
@@ -465,6 +467,7 @@ static void test_token_format() {
         tok.expires_at = 1000001000;
         tok.algorithm  = kTokenAlgECDSAP256;
         std::memset(tok.tray_uuid, 0x12, 16);
+        std::memset(tok.token_uuid, 0x34, 16);
         tok.signature.assign(64, 0x77);
 
         auto wire = token_pack(tok);
@@ -487,6 +490,7 @@ static void test_token_format() {
         tok.expires_at = 2000;
         tok.algorithm  = kTokenAlgECDSAP256;
         std::memset(tok.tray_uuid, 0x00, 16);
+        std::memset(tok.token_uuid, 0x00, 16);
         tok.signature.assign(64, 0x00);
 
         auto wire = token_pack(tok);
@@ -504,6 +508,7 @@ static void test_token_format() {
         tok.expires_at = 1000;  // expires before issued
         tok.algorithm  = kTokenAlgECDSAP256;
         std::memset(tok.tray_uuid, 0x00, 16);
+        std::memset(tok.token_uuid, 0x00, 16);
         tok.signature.assign(64, 0x00);
 
         // Build wire manually (skip token_pack which doesn't validate)
@@ -527,6 +532,7 @@ static void test_token_format() {
         tok.expires_at = 2000;
         tok.algorithm  = kTokenAlgECDSAP256;
         std::memset(tok.tray_uuid, 0x00, 16);
+        std::memset(tok.token_uuid, 0x00, 16);
         tok.signature.assign(64, 0x00);
 
         auto wire = token_pack(tok);

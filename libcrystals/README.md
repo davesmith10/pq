@@ -591,11 +591,12 @@ Wire layout:
   TLV 0x03      expires_at (8 bytes int64 BE Unix epoch)
   TLV 0x04      tray_uuid  (16 bytes binary UUID)
   TLV 0x05      algorithm  (1 byte: 0x03 = ECDSA-P256-SHA256 — only valid value; 0x01/0x02 reserved)
+  TLV 0x06      token_uuid (16 bytes random UUID v4)
   SIG_LEN       4 bytes BE uint32 (= 64 for ECDSA P-256)
   signature     SIG_LEN bytes
 ```
 
-Signed region: `magic(8) || version(2) || TLV[0x01..0x05]` (no sig trailer).
+Signed region: `magic(8) || version(2) || TLV[0x01..0x06]` (no sig trailer).
 
 ```cpp
 #include <crystals/token_format.hpp>
@@ -604,12 +605,13 @@ struct Token {
     std::vector<uint8_t> data;
     int64_t issued_at  = 0;
     int64_t expires_at = 0;
-    uint8_t tray_uuid[16] = {};
+    uint8_t tray_uuid[16]  = {};
+    uint8_t token_uuid[16] = {};
     uint8_t algorithm  = kTokenAlgECDSAP256;  // 0x03
     std::vector<uint8_t> signature;
 };
 
-// Compute the signed region (magic + version + 5 TLVs, no sig trailer).
+// Compute the signed region (magic + version + 6 TLVs, no sig trailer).
 std::vector<uint8_t> token_canonical_bytes(const Token& tok);
 
 // Serialize to full wire bytes (canonical + SIG_LEN + signature).
