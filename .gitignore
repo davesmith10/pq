@@ -6,6 +6,8 @@
 /msgpack/build/
 /static-verify/build/
 /libcrystals/build/
+/padme/build/
+/padme/tmp/
 
 # Prerequisites
 *.d
