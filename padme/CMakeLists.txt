@@ -7,6 +7,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 find_package(yaml-cpp REQUIRED)
 find_package(BLAKE3   REQUIRED)
 find_package(TBB      REQUIRED)
+find_package(OpenSSL  REQUIRED)
 
 # ── RPATH for TBB shared library ──────────────────────────────────────────────
 get_target_property(_tbb_loc TBB::tbb IMPORTED_LOCATION_RELEASE)
@@ -33,6 +34,7 @@ add_executable(padme
     ${LIB_SRC_ABS}/tray_reader.cpp
     ${LIB_SRC_ABS}/tray_pack.cpp
     ${LIB_SRC_ABS}/base64.cpp
+    ${LIB_SRC_ABS}/yaml_io.cpp
 )
 
 target_include_directories(padme PRIVATE
@@ -45,6 +47,7 @@ target_compile_definitions(padme PRIVATE MSGPACK_NO_BOOST)
 target_compile_options(padme PRIVATE -O2 -Wall -Wextra)
 
 target_link_libraries(padme PRIVATE
+    OpenSSL::Crypto
     BLAKE3::blake3
     TBB::tbb
     yaml-cpp
