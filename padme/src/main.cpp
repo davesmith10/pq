@@ -98,18 +98,20 @@ static unsigned row_count_cw(size_t nbytes, unsigned col_w) {
 
 // ── iTXt metadata ─────────────────────────────────────────────────────────────
 
-static std::string make_meta_text(const Tray& tray) {
+static std::string make_meta_text(const Tray& tray, int scale = 1) {
     std::ostringstream ss;
     ss << "alias="   << tray.alias    << "\n"
        << "id="      << tray.id       << "\n"
        << "profile=" << tray.type_str << "\n"
        << "created=" << tray.created  << "\n"
-       << "expires=" << tray.expires  << "\n";
+       << "expires=" << tray.expires  << "\n"
+       << "scale="   << scale         << "\n";
     return ss.str();
 }
 
 struct TrayMeta {
     std::string alias, id, profile, created, expires;
+    int scale = 1;
 };
 
 static TrayMeta parse_meta(const std::string& text) {
@@ -126,6 +128,7 @@ static TrayMeta parse_meta(const std::string& text) {
         else if (key == "profile") m.profile = val;
         else if (key == "created") m.created = val;
         else if (key == "expires") m.expires = val;
+        else if (key == "scale")   m.scale   = std::stoi(val);
     }
     if (m.alias.empty() || m.id.empty() || m.profile.empty())
         throw std::runtime_error("crystals-tray iTXt chunk is missing required fields");
@@ -227,9 +230,9 @@ static void fill_block(std::vector<uint8_t>& pixels, unsigned img_w,
                         unsigned col_width = ROW_WIDTH) {
     for (unsigned row = 0; row < nrows; ++row) {
         for (unsigned col = 0; col < col_width; ++col) {
-            size_t  byte_idx = static_cast<size_t>(row) * col_width + col;
-            uint8_t bval     = (byte_idx < data.size()) ? data[byte_idx] : 0;
-            auto [r, g, b]   = byte_to_rgb(bval);
+            size_t byte_idx = static_cast<size_t>(row) * col_width + col;
+            if (byte_idx >= data.size()) continue;   // leave background (white)
+            auto [r, g, b] = byte_to_rgb(data[byte_idx]);
             size_t px = ((y_off + row) * img_w + (x_off + col)) * 4;
             pixels[px + 0] = r;
             pixels[px + 1] = g;
@@ -264,6 +267,34 @@ static std::vector<uint8_t> read_block(const unsigned char* pixels, unsigned img
         out.push_back(it->second);
     }
     return out;
+}
+
+// ── Nearest-neighbor scale helpers ───────────────────────────────────────────
+
+// Upscale by 4× (w→4w, h→4h); each source pixel becomes a 4×4 block.
+static std::vector<uint8_t> upscale4x(
+    const std::vector<uint8_t>& src, unsigned w, unsigned h)
+{
+    unsigned ow = w * 4, oh = h * 4;
+    std::vector<uint8_t> dst(ow * oh * 4);
+    for (unsigned oy = 0; oy < oh; ++oy)
+        for (unsigned ox = 0; ox < ow; ++ox)
+            for (int c = 0; c < 4; ++c)
+                dst[(oy * ow + ox) * 4 + c] = src[(oy / 4 * w + ox / 4) * 4 + c];
+    return dst;
+}
+
+// Downscale by 4× — takes top-left pixel of each 4×4 block.
+static std::vector<uint8_t> downscale4x(
+    const std::vector<uint8_t>& src, unsigned sw, unsigned sh)
+{
+    unsigned ow = sw / 4, oh = sh / 4;
+    std::vector<uint8_t> dst(ow * oh * 4);
+    for (unsigned oy = 0; oy < oh; ++oy)
+        for (unsigned ox = 0; ox < ow; ++ox)
+            for (int c = 0; c < 4; ++c)
+                dst[(oy * ow + ox) * 4 + c] = src[(oy * 4 * sw + ox * 4) * 4 + c];
+    return dst;
 }
 
 // ── Build image (render path) ─────────────────────────────────────────────────
@@ -600,7 +631,11 @@ static int cmd_render(int argc, char* argv[]) {
     std::vector<uint8_t> cl_pk, cl_sk, pq_pk, pq_sk;
     ImageResult img = build_image(tray, cl_pk, cl_sk, pq_pk, pq_sk);
 
-    try { write_png(img, out_file, make_meta_text(tray)); }
+    // 4× nearest-neighbor upscale
+    img.pixels = upscale4x(img.pixels, img.w, img.h);
+    img.w *= 4; img.h *= 4;
+
+    try { write_png(img, out_file, make_meta_text(tray, 4)); }
     catch (const std::exception& e) {
         std::cerr << "Error: " << e.what() << "\n"; return 3;
     }
@@ -639,16 +674,20 @@ static int cmd_decode(int argc, char* argv[]) {
     state.info_raw.colortype = LCT_RGBA;
     state.info_raw.bitdepth  = 8;
 
-    unsigned char* pixels = nullptr;
+    unsigned char* pixels_raw = nullptr;
     unsigned img_w = 0, img_h = 0;
-    unsigned err = lodepng_decode(&pixels, &img_w, &img_h, &state, png_bytes, png_size);
+    unsigned err = lodepng_decode(&pixels_raw, &img_w, &img_h, &state, png_bytes, png_size);
     free(png_bytes);
     if (err) {
-        free(pixels);
+        free(pixels_raw);
         lodepng_state_cleanup(&state);
         std::cerr << "Error: PNG decode failed: " << lodepng_error_text(err) << "\n";
         return 3;
     }
+
+    // Take ownership into a vector so all error paths are clean.
+    std::vector<uint8_t> pixel_vec(pixels_raw, pixels_raw + img_w * img_h * 4);
+    free(pixels_raw);
 
     // ── 2. Extract iTXt metadata ──────────────────────────────────────────────
     std::string meta_text;
@@ -662,12 +701,10 @@ static int cmd_decode(int argc, char* argv[]) {
     lodepng_state_cleanup(&state);
 
     if (meta_text.empty()) {
-        free(pixels);
         std::cerr << "Error: no crystals-tray iTXt chunk — not a padme PNG\n";
         return 2;
     }
     if (has_encaps_chunk) {
-        free(pixels);
         std::cerr << "Error: this is an encaps PNG — use 'decaps' to recover the tray\n";
         return 2;
     }
@@ -675,13 +712,18 @@ static int cmd_decode(int argc, char* argv[]) {
     TrayMeta meta;
     try { meta = parse_meta(meta_text); }
     catch (const std::exception& e) {
-        free(pixels); std::cerr << "Error: " << e.what() << "\n"; return 2;
+        std::cerr << "Error: " << e.what() << "\n"; return 2;
+    }
+
+    // ── 2a. Downscale if the PNG was upscaled ─────────────────────────────────
+    if (meta.scale == 4) {
+        pixel_vec = downscale4x(pixel_vec, img_w, img_h);
+        img_w /= 4; img_h /= 4;
     }
 
     // ── 3. Look up slot definitions ───────────────────────────────────────────
     auto pit = PROFILES.find(meta.profile);
     if (pit == PROFILES.end()) {
-        free(pixels);
         std::cerr << "Error: unknown profile '" << meta.profile << "' in iTXt chunk\n";
         return 2;
     }
@@ -719,6 +761,7 @@ static int cmd_decode(int argc, char* argv[]) {
 
     // ── 5. Extract byte streams ───────────────────────────────────────────────
     auto rlut = build_reverse_lut();
+    const uint8_t* pixels = pixel_vec.data();
     std::vector<uint8_t> cl_pk_data, cl_sk_data, pq_pk_data, pq_sk_data;
     try {
         if (is_grid) {
@@ -727,19 +770,17 @@ static int cmd_decode(int argc, char* argv[]) {
             pq_pk_data = read_block(pixels, img_w, rlut, x_pq_pk, y_pq,  pq_pk_bytes);
             pq_sk_data = read_block(pixels, img_w, rlut, x_pq_sk, y_pq,  pq_sk_bytes);
         } else {
-            std::vector<uint8_t> combined_data;
-            size_t total = 0;
-            for (const auto& sd : slot_defs) total += sd.pk_size + sd.sk_size;
-            combined_data = read_block(pixels, img_w, rlut, MARGIN, MARGIN, total);
-
-            size_t off = 0;
-            for (const auto& sd : slot_defs) {
-                auto pk = std::vector<uint8_t>(combined_data.begin() + off,
-                                               combined_data.begin() + off + sd.pk_size);
-                off += sd.pk_size;
-                auto sk = std::vector<uint8_t>(combined_data.begin() + off,
-                                               combined_data.begin() + off + sd.sk_size);
-                off += sd.sk_size;
+            // Stack layout: each slot is placed at a distinct Y offset separated by GAP.
+            unsigned y_slot = MARGIN;
+            for (size_t si = 0; si < slot_defs.size(); ++si) {
+                const auto& sd = slot_defs[si];
+                size_t slot_bytes = sd.pk_size + sd.sk_size;
+                unsigned slot_rows = row_count(slot_bytes);
+                auto slot_data = read_block(pixels, img_w, rlut, MARGIN, y_slot, slot_bytes);
+                auto pk = std::vector<uint8_t>(slot_data.begin(),
+                                               slot_data.begin() + (std::ptrdiff_t)sd.pk_size);
+                auto sk = std::vector<uint8_t>(slot_data.begin() + (std::ptrdiff_t)sd.pk_size,
+                                               slot_data.end());
                 if (is_pq_slot(sd.alg_name)) {
                     pq_pk_data.insert(pq_pk_data.end(), pk.begin(), pk.end());
                     pq_sk_data.insert(pq_sk_data.end(), sk.begin(), sk.end());
@@ -747,12 +788,13 @@ static int cmd_decode(int argc, char* argv[]) {
                     cl_pk_data.insert(cl_pk_data.end(), pk.begin(), pk.end());
                     cl_sk_data.insert(cl_sk_data.end(), sk.begin(), sk.end());
                 }
+                y_slot += slot_rows;
+                if (si + 1 < slot_defs.size()) y_slot += GAP;
             }
         }
     } catch (const std::exception& e) {
-        free(pixels); std::cerr << "Error: " << e.what() << "\n"; return 2;
+        std::cerr << "Error: " << e.what() << "\n"; return 2;
     }
-    free(pixels);
 
     // ── 6. Reconstruct Tray slots from byte streams ───────────────────────────
     Tray tray;
@@ -893,6 +935,10 @@ static int cmd_encaps(int argc, char* argv[]) {
         // ── 8. Build encaps image ─────────────────────────────────────────────
         ImageResult img = build_encaps_image(tray, cl_pk, cl_sk_enc, pq_pk, pq_sk_enc, kem_blob);
 
+        // 4× nearest-neighbor upscale
+        img.pixels = upscale4x(img.pixels, img.w, img.h);
+        img.w *= 4; img.h *= 4;
+
         // ── 9. Build iTXt chunks ──────────────────────────────────────────────
         EncapsMeta em;
         em.salt     = salt;
@@ -902,7 +948,7 @@ static int cmd_encaps(int argc, char* argv[]) {
         em.sk_nonce = sk_nonce;
         em.sk_tag   = sk_tag;
 
-        write_png(img, out_file, make_meta_text(tray), make_encaps_text(em));
+        write_png(img, out_file, make_meta_text(tray, 4), make_encaps_text(em));
 
     } catch (const std::exception& e) {
         std::cerr << "Error: " << e.what() << "\n"; return 2;
@@ -944,16 +990,20 @@ static int cmd_decaps(int argc, char* argv[]) {
     state.info_raw.colortype = LCT_RGBA;
     state.info_raw.bitdepth  = 8;
 
-    unsigned char* pixels = nullptr;
+    unsigned char* pixels_raw2 = nullptr;
     unsigned img_w = 0, img_h = 0;
-    unsigned err = lodepng_decode(&pixels, &img_w, &img_h, &state, png_bytes, png_size);
+    unsigned err = lodepng_decode(&pixels_raw2, &img_w, &img_h, &state, png_bytes, png_size);
     free(png_bytes);
     if (err) {
-        free(pixels);
+        free(pixels_raw2);
         lodepng_state_cleanup(&state);
         std::cerr << "Error: PNG decode failed: " << lodepng_error_text(err) << "\n";
         return 3;
     }
+
+    // Take ownership into a vector so all error paths are clean.
+    std::vector<uint8_t> pixel_vec2(pixels_raw2, pixels_raw2 + img_w * img_h * 4);
+    free(pixels_raw2);
 
     // ── 2. Extract both iTXt chunks ───────────────────────────────────────────
     std::string meta_text, encaps_text;
@@ -966,12 +1016,10 @@ static int cmd_decaps(int argc, char* argv[]) {
     lodepng_state_cleanup(&state);
 
     if (meta_text.empty()) {
-        free(pixels);
         std::cerr << "Error: no crystals-tray iTXt chunk — not a padme PNG\n";
         return 2;
     }
     if (encaps_text.empty()) {
-        free(pixels);
         std::cerr << "Error: no crystals-encaps chunk — not an encaps PNG; use 'decode'\n";
         return 2;
     }
@@ -982,13 +1030,18 @@ static int cmd_decaps(int argc, char* argv[]) {
         meta = parse_meta(meta_text);
         em   = parse_encaps_meta(encaps_text);
     } catch (const std::exception& e) {
-        free(pixels); std::cerr << "Error: " << e.what() << "\n"; return 2;
+        std::cerr << "Error: " << e.what() << "\n"; return 2;
+    }
+
+    // ── 2a. Downscale if the PNG was upscaled ─────────────────────────────────
+    if (meta.scale == 4) {
+        pixel_vec2 = downscale4x(pixel_vec2, img_w, img_h);
+        img_w /= 4; img_h /= 4;
     }
 
     // ── 3. Look up profile ────────────────────────────────────────────────────
     auto pit = PROFILES.find(meta.profile);
     if (pit == PROFILES.end()) {
-        free(pixels);
         std::cerr << "Error: unknown profile '" << meta.profile << "'\n";
         return 2;
     }
@@ -1027,21 +1080,21 @@ static int cmd_decaps(int argc, char* argv[]) {
 
     // ── 6. Read pixel blocks ──────────────────────────────────────────────────
     auto rlut = build_reverse_lut();
+    const uint8_t* pixels2 = pixel_vec2.data();
     std::vector<uint8_t> cl_pk_data, cl_sk_enc, pq_pk_data, pq_sk_enc, kem_raw;
     try {
         if (cl_rows > 0) {
-            cl_pk_data = read_block(pixels, img_w, rlut, x_pk, y_cl, cl_pk_bytes, ENCAPS_COL_W);
-            cl_sk_enc  = read_block(pixels, img_w, rlut, x_sk, y_cl, cl_sk_bytes, ENCAPS_COL_W);
+            cl_pk_data = read_block(pixels2, img_w, rlut, x_pk, y_cl, cl_pk_bytes, ENCAPS_COL_W);
+            cl_sk_enc  = read_block(pixels2, img_w, rlut, x_sk, y_cl, cl_sk_bytes, ENCAPS_COL_W);
         }
         if (pq_rows > 0) {
-            pq_pk_data = read_block(pixels, img_w, rlut, x_pk, y_pq, pq_pk_bytes, ENCAPS_COL_W);
-            pq_sk_enc  = read_block(pixels, img_w, rlut, x_sk, y_pq, pq_sk_bytes, ENCAPS_COL_W);
+            pq_pk_data = read_block(pixels2, img_w, rlut, x_pk, y_pq, pq_pk_bytes, ENCAPS_COL_W);
+            pq_sk_enc  = read_block(pixels2, img_w, rlut, x_sk, y_pq, pq_sk_bytes, ENCAPS_COL_W);
         }
-        kem_raw = read_block(pixels, img_w, rlut, x_kem, y_kem, KEM_BLOB_BYTES, KEM_BLOB_BYTES);
+        kem_raw = read_block(pixels2, img_w, rlut, x_kem, y_kem, KEM_BLOB_BYTES, KEM_BLOB_BYTES);
     } catch (const std::exception& e) {
-        free(pixels); std::cerr << "Error: " << e.what() << "\n"; return 2;
+        std::cerr << "Error: " << e.what() << "\n"; return 2;
     }
-    free(pixels);
 
     // ── 7. Get password and derive wrap_key ───────────────────────────────────
     std::string password;
