@@ -60,12 +60,6 @@ static std::unordered_map<uint32_t, uint8_t> build_reverse_lut() {
     return lut;
 }
 
-// ── Image geometry constants (render / decode) ────────────────────────────────
-
-static const unsigned MARGIN    = 8;
-static const unsigned GAP       = 8;
-static const unsigned ROW_WIDTH = 32;
-
 // ── Image geometry constants (encaps / decaps) ────────────────────────────────
 
 static const unsigned ENCAPS_IMG_W  = 256;
@@ -83,11 +77,6 @@ struct ImageResult {
 static bool is_pq_slot(const std::string& alg_name) {
     return alg_name.rfind("Kyber", 0) == 0 ||
            alg_name.rfind("Dilithium", 0) == 0;
-}
-
-// row_count using ROW_WIDTH (render / decode)
-static unsigned row_count(size_t nbytes) {
-    return static_cast<unsigned>((nbytes + ROW_WIDTH - 1) / ROW_WIDTH);
 }
 
 // row_count for arbitrary column width
@@ -227,7 +216,7 @@ static const std::map<std::string, std::vector<SlotDef>> PROFILES = {
 static void fill_block(std::vector<uint8_t>& pixels, unsigned img_w,
                         const std::vector<uint8_t>& data, unsigned nrows,
                         unsigned x_off, unsigned y_off,
-                        unsigned col_width = ROW_WIDTH) {
+                        unsigned col_width) {
     for (unsigned row = 0; row < nrows; ++row) {
         for (unsigned col = 0; col < col_width; ++col) {
             size_t byte_idx = static_cast<size_t>(row) * col_width + col;
@@ -248,7 +237,7 @@ static std::vector<uint8_t> read_block(const unsigned char* pixels, unsigned img
                                         const std::unordered_map<uint32_t, uint8_t>& rlut,
                                         unsigned x_off, unsigned y_off,
                                         size_t nbytes,
-                                        unsigned col_width = ROW_WIDTH) {
+                                        unsigned col_width) {
     std::vector<uint8_t> out;
     out.reserve(nbytes);
     for (size_t i = 0; i < nbytes; ++i) {
@@ -295,82 +284,6 @@ static std::vector<uint8_t> downscale4x(
             for (int c = 0; c < 4; ++c)
                 dst[(oy * ow + ox) * 4 + c] = src[(oy * 4 * sw + ox * 4) * 4 + c];
     return dst;
-}
-
-// ── Build image (render path) ─────────────────────────────────────────────────
-
-static ImageResult build_image_grid(const std::vector<uint8_t>& cl_pk,
-                                     const std::vector<uint8_t>& cl_sk,
-                                     const std::vector<uint8_t>& pq_pk,
-                                     const std::vector<uint8_t>& pq_sk) {
-    unsigned cl_pk_rows = row_count(cl_pk.size());
-    unsigned cl_sk_rows = row_count(cl_sk.size());
-    unsigned pq_pk_rows = row_count(pq_pk.size());
-    unsigned pq_sk_rows = row_count(pq_sk.size());
-
-    unsigned top_rows = std::max(cl_pk_rows, cl_sk_rows);
-    unsigned bot_rows = std::max(pq_pk_rows, pq_sk_rows);
-    if (top_rows == 0) top_rows = 1;
-    if (bot_rows == 0) bot_rows = 1;
-
-    unsigned img_w = MARGIN + ROW_WIDTH + GAP + ROW_WIDTH + MARGIN;
-    unsigned img_h = MARGIN + top_rows + GAP + bot_rows + MARGIN;
-
-    std::vector<uint8_t> pixels(img_w * img_h * 4, 0xFF);
-
-    fill_block(pixels, img_w, cl_pk, cl_pk_rows, MARGIN,                  MARGIN);
-    fill_block(pixels, img_w, cl_sk, cl_sk_rows, MARGIN + ROW_WIDTH + GAP, MARGIN);
-    fill_block(pixels, img_w, pq_pk, pq_pk_rows, MARGIN,                  MARGIN + top_rows + GAP);
-    fill_block(pixels, img_w, pq_sk, pq_sk_rows, MARGIN + ROW_WIDTH + GAP, MARGIN + top_rows + GAP);
-
-    return {std::move(pixels), img_w, img_h};
-}
-
-static ImageResult build_image_stack(const Tray& tray) {
-    struct SlotData { std::vector<uint8_t> bytes; unsigned rows; };
-    std::vector<SlotData> slots;
-    slots.reserve(tray.slots.size());
-    for (const auto& s : tray.slots) {
-        SlotData sd;
-        sd.bytes = s.pk;
-        sd.bytes.insert(sd.bytes.end(), s.sk.begin(), s.sk.end());
-        if (sd.bytes.empty()) sd.bytes.push_back(0);
-        sd.rows = row_count(sd.bytes.size());
-        slots.push_back(std::move(sd));
-    }
-    unsigned total_rows = 0;
-    for (const auto& sd : slots) total_rows += sd.rows;
-    unsigned n    = static_cast<unsigned>(slots.size());
-    unsigned img_w = MARGIN * 2 + ROW_WIDTH;
-    unsigned img_h = MARGIN * 2 + total_rows + (n > 1 ? (n - 1) * GAP : 0);
-
-    std::vector<uint8_t> pixels(img_w * img_h * 4, 0xFF);
-    unsigned y = MARGIN;
-    for (size_t si = 0; si < slots.size(); ++si) {
-        fill_block(pixels, img_w, slots[si].bytes, slots[si].rows, MARGIN, y);
-        y += slots[si].rows;
-        if (si + 1 < slots.size()) y += GAP;
-    }
-    return {std::move(pixels), img_w, img_h};
-}
-
-static ImageResult build_image(const Tray& tray,
-                                std::vector<uint8_t>& cl_pk_out,
-                                std::vector<uint8_t>& cl_sk_out,
-                                std::vector<uint8_t>& pq_pk_out,
-                                std::vector<uint8_t>& pq_sk_out) {
-    for (const auto& s : tray.slots) {
-        if (is_pq_slot(s.alg_name)) {
-            pq_pk_out.insert(pq_pk_out.end(), s.pk.begin(), s.pk.end());
-            pq_sk_out.insert(pq_sk_out.end(), s.sk.begin(), s.sk.end());
-        } else {
-            cl_pk_out.insert(cl_pk_out.end(), s.pk.begin(), s.pk.end());
-            cl_sk_out.insert(cl_sk_out.end(), s.sk.begin(), s.sk.end());
-        }
-    }
-    if (!cl_pk_out.empty() && !pq_pk_out.empty())
-        return build_image_grid(cl_pk_out, cl_sk_out, pq_pk_out, pq_sk_out);
-    return build_image_stack(tray);
 }
 
 // ── Write PNG with one or two iTXt chunks ─────────────────────────────────────
@@ -577,290 +490,35 @@ static bool write_tray_file(const Tray& tray, const std::string& path, const cha
     return true;
 }
 
-// ── render command ────────────────────────────────────────────────────────────
+// ── encaps command ────────────────────────────────────────────────────────────
 
 static void print_usage(const char* prog) {
     std::cerr <<
-        "Usage: " << prog << " render  --tray <file>     [--out <file.png>]\n"
-        "       " << prog << " decode  --tray <file.png> [--out <file>]\n"
-        "       " << prog << " encaps  --tray <file>     [--out <file.png>] [--pwfile <file>]\n"
-        "       " << prog << " decaps  --tray <file.png> [--out <file>]     [--pwfile <file>]\n"
+        "Usage: " << prog << " tray-encaps  --in-tray <file>     [--out-png <file.png>] [--pwfile <file>]\n"
+        "       " << prog << " tray-decaps  --in-png <file.png>  [--out-tray <file>]    [--pwfile <file>]\n"
         "\n"
-        "  render  Visualize a tray as a PNG image\n"
-        "  decode  Recover a tray from a padme PNG\n"
-        "  encaps  Render + password-encrypt private keys into a PNG\n"
-        "  decaps  Decrypt and recover a tray from an encaps PNG\n"
+        "  tray-encaps  Render + password-encrypt private keys into a PNG\n"
+        "  tray-decaps  Decrypt and recover a tray from an encaps PNG\n"
         "\n"
-        "render/decode options:\n"
-        "  --tray <file>      Source tray (YAML or msgpack) / padme PNG\n"
-        "  --out  <file>      Output file (default: stdout / <alias>.png)\n"
+        "tray-encaps options:\n"
+        "  --in-tray  <file>      Input tray (YAML or msgpack)\n"
+        "  --out-png  <file.png>  Output PNG (default: <alias>_enc.png)\n"
+        "  --pwfile   <file>      Read password from file (prompts if omitted)\n"
         "\n"
-        "encaps/decaps options:\n"
-        "  --tray    <file>   Input (tray YAML/msgpack for encaps, PNG for decaps)\n"
-        "  --out     <file>   Output (PNG for encaps, tray file for decaps)\n"
-        "  --pwfile  <file>   Read password from file (newline stripped)\n"
-        "\n"
-        "Layout (4-slot trays):\n"
-        "  top-left: classical pk  |  top-right: classical sk\n"
-        "  bot-left: PQ pk         |  bot-right: PQ sk\n";
+        "tray-decaps options:\n"
+        "  --in-png   <file.png>  Input encaps PNG\n"
+        "  --out-tray <file>      Output tray: YAML (.yaml/.yml) or msgpack (default: YAML to stdout)\n"
+        "  --pwfile   <file>      Read password from file (prompts if omitted)\n";
 }
 
-static int cmd_render(int argc, char* argv[]) {
-    std::string tray_file, out_file;
-    for (int i = 1; i < argc; ++i) {
-        if (std::strcmp(argv[i], "--tray") == 0) {
-            if (++i >= argc) { std::cerr << "Error: --tray requires a filename\n"; return 1; }
-            tray_file = argv[i];
-        } else if (std::strcmp(argv[i], "--out") == 0) {
-            if (++i >= argc) { std::cerr << "Error: --out requires a filename\n"; return 1; }
-            out_file = argv[i];
-        } else {
-            std::cerr << "Error: unknown option: " << argv[i] << "\n"; return 1;
-        }
-    }
-    if (tray_file.empty()) { std::cerr << "Error: --tray is required\n"; return 1; }
-
-    Tray tray;
-    try { tray = load_tray(tray_file); }
-    catch (const std::exception& e) {
-        std::cerr << "Error: failed to load tray: " << e.what() << "\n"; return 2;
-    }
-
-    if (out_file.empty()) out_file = tray.alias + ".png";
-
-    std::vector<uint8_t> cl_pk, cl_sk, pq_pk, pq_sk;
-    ImageResult img = build_image(tray, cl_pk, cl_sk, pq_pk, pq_sk);
-
-    // 4× nearest-neighbor upscale
-    img.pixels = upscale4x(img.pixels, img.w, img.h);
-    img.w *= 4; img.h *= 4;
-
-    try { write_png(img, out_file, make_meta_text(tray, 4)); }
-    catch (const std::exception& e) {
-        std::cerr << "Error: " << e.what() << "\n"; return 3;
-    }
-
-    std::cout << "Rendered tray '" << tray.alias << "' \xe2\x86\x92 " << out_file
-              << " (" << img.w << "\xc3\x97" << img.h << " px, "
-              << tray.slots.size() << " slots)\n";
-    return 0;
-}
-
-// ── decode command ────────────────────────────────────────────────────────────
-
-static int cmd_decode(int argc, char* argv[]) {
-    std::string png_file, out_file;
-    for (int i = 1; i < argc; ++i) {
-        if (std::strcmp(argv[i], "--tray") == 0) {
-            if (++i >= argc) { std::cerr << "Error: --tray requires a filename\n"; return 1; }
-            png_file = argv[i];
-        } else if (std::strcmp(argv[i], "--out") == 0) {
-            if (++i >= argc) { std::cerr << "Error: --out requires a filename\n"; return 1; }
-            out_file = argv[i];
-        } else {
-            std::cerr << "Error: unknown option: " << argv[i] << "\n"; return 1;
-        }
-    }
-    if (png_file.empty()) { std::cerr << "Error: --tray is required\n"; return 1; }
-
-    // ── 1. Load PNG ───────────────────────────────────────────────────────────
-    unsigned char* png_bytes = nullptr;
-    size_t png_size = 0;
-    if (lodepng_load_file(&png_bytes, &png_size, png_file.c_str()))
-        { std::cerr << "Error: cannot read PNG file: " << png_file << "\n"; return 3; }
-
-    LodePNGState state;
-    lodepng_state_init(&state);
-    state.info_raw.colortype = LCT_RGBA;
-    state.info_raw.bitdepth  = 8;
-
-    unsigned char* pixels_raw = nullptr;
-    unsigned img_w = 0, img_h = 0;
-    unsigned err = lodepng_decode(&pixels_raw, &img_w, &img_h, &state, png_bytes, png_size);
-    free(png_bytes);
-    if (err) {
-        free(pixels_raw);
-        lodepng_state_cleanup(&state);
-        std::cerr << "Error: PNG decode failed: " << lodepng_error_text(err) << "\n";
-        return 3;
-    }
-
-    // Take ownership into a vector so all error paths are clean.
-    std::vector<uint8_t> pixel_vec(pixels_raw, pixels_raw + img_w * img_h * 4);
-    free(pixels_raw);
-
-    // ── 2. Extract iTXt metadata ──────────────────────────────────────────────
-    std::string meta_text;
-    bool has_encaps_chunk = false;
-    for (size_t i = 0; i < state.info_png.itext_num; ++i) {
-        if (std::strcmp(state.info_png.itext_keys[i], "crystals-tray") == 0)
-            meta_text = state.info_png.itext_strings[i];
-        if (std::strcmp(state.info_png.itext_keys[i], "crystals-encaps") == 0)
-            has_encaps_chunk = true;
-    }
-    lodepng_state_cleanup(&state);
-
-    if (meta_text.empty()) {
-        std::cerr << "Error: no crystals-tray iTXt chunk — not a padme PNG\n";
-        return 2;
-    }
-    if (has_encaps_chunk) {
-        std::cerr << "Error: this is an encaps PNG — use 'decaps' to recover the tray\n";
-        return 2;
-    }
-
-    TrayMeta meta;
-    try { meta = parse_meta(meta_text); }
-    catch (const std::exception& e) {
-        std::cerr << "Error: " << e.what() << "\n"; return 2;
-    }
-
-    // ── 2a. Downscale if the PNG was upscaled ─────────────────────────────────
-    if (meta.scale == 4) {
-        pixel_vec = downscale4x(pixel_vec, img_w, img_h);
-        img_w /= 4; img_h /= 4;
-    }
-
-    // ── 3. Look up slot definitions ───────────────────────────────────────────
-    auto pit = PROFILES.find(meta.profile);
-    if (pit == PROFILES.end()) {
-        std::cerr << "Error: unknown profile '" << meta.profile << "' in iTXt chunk\n";
-        return 2;
-    }
-    const auto& slot_defs = pit->second;
-
-    // ── 4. Compute byte stream sizes and image geometry ───────────────────────
-    size_t cl_pk_bytes = 0, cl_sk_bytes = 0, pq_pk_bytes = 0, pq_sk_bytes = 0;
-    for (const auto& sd : slot_defs) {
-        if (sd.alg_name.rfind("Kyber", 0) == 0 || sd.alg_name.rfind("Dilithium", 0) == 0) {
-            pq_pk_bytes += sd.pk_size;
-            pq_sk_bytes += sd.sk_size;
-        } else {
-            cl_pk_bytes += sd.pk_size;
-            cl_sk_bytes += sd.sk_size;
-        }
-    }
-
-    bool is_grid = (cl_pk_bytes > 0 && pq_pk_bytes > 0);
-
-    unsigned x_cl_pk, x_cl_sk, y_cl, x_pq_pk, x_pq_sk, y_pq;
-    if (is_grid) {
-        unsigned top_rows = std::max(row_count(cl_pk_bytes), row_count(cl_sk_bytes));
-        if (top_rows == 0) top_rows = 1;
-        x_cl_pk = MARGIN;
-        x_cl_sk = MARGIN + ROW_WIDTH + GAP;
-        y_cl    = MARGIN;
-        x_pq_pk = MARGIN;
-        x_pq_sk = MARGIN + ROW_WIDTH + GAP;
-        y_pq    = MARGIN + top_rows + GAP;
-    } else {
-        x_cl_pk = x_pq_pk = MARGIN;
-        x_cl_sk = x_pq_sk = MARGIN;
-        y_cl = y_pq = MARGIN;
-    }
-
-    // ── 5. Extract byte streams ───────────────────────────────────────────────
-    auto rlut = build_reverse_lut();
-    const uint8_t* pixels = pixel_vec.data();
-    std::vector<uint8_t> cl_pk_data, cl_sk_data, pq_pk_data, pq_sk_data;
-    try {
-        if (is_grid) {
-            cl_pk_data = read_block(pixels, img_w, rlut, x_cl_pk, y_cl,  cl_pk_bytes);
-            cl_sk_data = read_block(pixels, img_w, rlut, x_cl_sk, y_cl,  cl_sk_bytes);
-            pq_pk_data = read_block(pixels, img_w, rlut, x_pq_pk, y_pq,  pq_pk_bytes);
-            pq_sk_data = read_block(pixels, img_w, rlut, x_pq_sk, y_pq,  pq_sk_bytes);
-        } else {
-            // Stack layout: each slot is placed at a distinct Y offset separated by GAP.
-            unsigned y_slot = MARGIN;
-            for (size_t si = 0; si < slot_defs.size(); ++si) {
-                const auto& sd = slot_defs[si];
-                size_t slot_bytes = sd.pk_size + sd.sk_size;
-                unsigned slot_rows = row_count(slot_bytes);
-                auto slot_data = read_block(pixels, img_w, rlut, MARGIN, y_slot, slot_bytes);
-                auto pk = std::vector<uint8_t>(slot_data.begin(),
-                                               slot_data.begin() + (std::ptrdiff_t)sd.pk_size);
-                auto sk = std::vector<uint8_t>(slot_data.begin() + (std::ptrdiff_t)sd.pk_size,
-                                               slot_data.end());
-                if (is_pq_slot(sd.alg_name)) {
-                    pq_pk_data.insert(pq_pk_data.end(), pk.begin(), pk.end());
-                    pq_sk_data.insert(pq_sk_data.end(), sk.begin(), sk.end());
-                } else {
-                    cl_pk_data.insert(cl_pk_data.end(), pk.begin(), pk.end());
-                    cl_sk_data.insert(cl_sk_data.end(), sk.begin(), sk.end());
-                }
-                y_slot += slot_rows;
-                if (si + 1 < slot_defs.size()) y_slot += GAP;
-            }
-        }
-    } catch (const std::exception& e) {
-        std::cerr << "Error: " << e.what() << "\n"; return 2;
-    }
-
-    // ── 6. Reconstruct Tray slots from byte streams ───────────────────────────
-    Tray tray;
-    tray.version       = 1;
-    tray.alias         = meta.alias;
-    tray.id            = meta.id;
-    tray.type_str      = meta.profile;
-    tray.profile_group = "crystals";
-    tray.created       = meta.created;
-    tray.expires       = meta.expires;
-
-    if      (meta.profile == "level0")       tray.tray_type = TrayType::Level0;
-    else if (meta.profile == "level1")       tray.tray_type = TrayType::Level1;
-    else if (meta.profile == "level2-25519") tray.tray_type = TrayType::Level2_25519;
-    else if (meta.profile == "level2")       tray.tray_type = TrayType::Level2;
-    else if (meta.profile == "level3")       tray.tray_type = TrayType::Level3;
-    else if (meta.profile == "level5")       tray.tray_type = TrayType::Level5;
-
-    size_t cl_pk_off = 0, cl_sk_off = 0, pq_pk_off = 0, pq_sk_off = 0;
-    for (const auto& sd : slot_defs) {
-        Slot s;
-        s.alg_name = sd.alg_name;
-        if (is_pq_slot(sd.alg_name)) {
-            s.pk = std::vector<uint8_t>(pq_pk_data.begin() + pq_pk_off,
-                                         pq_pk_data.begin() + pq_pk_off + sd.pk_size);
-            pq_pk_off += sd.pk_size;
-            if (pq_sk_off + sd.sk_size <= pq_sk_data.size()) {
-                s.sk = std::vector<uint8_t>(pq_sk_data.begin() + pq_sk_off,
-                                             pq_sk_data.begin() + pq_sk_off + sd.sk_size);
-                pq_sk_off += sd.sk_size;
-            }
-        } else {
-            s.pk = std::vector<uint8_t>(cl_pk_data.begin() + cl_pk_off,
-                                         cl_pk_data.begin() + cl_pk_off + sd.pk_size);
-            cl_pk_off += sd.pk_size;
-            if (cl_sk_off + sd.sk_size <= cl_sk_data.size()) {
-                s.sk = std::vector<uint8_t>(cl_sk_data.begin() + cl_sk_off,
-                                             cl_sk_data.begin() + cl_sk_off + sd.sk_size);
-                cl_sk_off += sd.sk_size;
-            }
-        }
-        tray.slots.push_back(std::move(s));
-    }
-
-    // ── 7. Output ─────────────────────────────────────────────────────────────
-    if (!out_file.empty()) {
-        if (!write_tray_file(tray, out_file, "Decoded")) return 3;
-    } else {
-        try { std::cout << emit_tray_yaml(tray); }
-        catch (const std::exception& e) {
-            std::cerr << "Error: YAML output failed: " << e.what() << "\n"; return 3;
-        }
-    }
-    return 0;
-}
-
-// ── encaps command ────────────────────────────────────────────────────────────
-
-static int cmd_encaps(int argc, char* argv[]) {
+static int cmd_tray_encaps(int argc, char* argv[]) {
     std::string tray_file, out_file, pwfile;
     for (int i = 1; i < argc; ++i) {
-        if (std::strcmp(argv[i], "--tray") == 0) {
-            if (++i >= argc) { std::cerr << "Error: --tray requires a filename\n"; return 1; }
+        if (std::strcmp(argv[i], "--in-tray") == 0) {
+            if (++i >= argc) { std::cerr << "Error: --in-tray requires a filename\n"; return 1; }
             tray_file = argv[i];
-        } else if (std::strcmp(argv[i], "--out") == 0) {
-            if (++i >= argc) { std::cerr << "Error: --out requires a filename\n"; return 1; }
+        } else if (std::strcmp(argv[i], "--out-png") == 0) {
+            if (++i >= argc) { std::cerr << "Error: --out-png requires a filename\n"; return 1; }
             out_file = argv[i];
         } else if (std::strcmp(argv[i], "--pwfile") == 0) {
             if (++i >= argc) { std::cerr << "Error: --pwfile requires a filename\n"; return 1; }
@@ -869,7 +527,7 @@ static int cmd_encaps(int argc, char* argv[]) {
             std::cerr << "Error: unknown option: " << argv[i] << "\n"; return 1;
         }
     }
-    if (tray_file.empty()) { std::cerr << "Error: --tray is required\n"; return 1; }
+    if (tray_file.empty()) { std::cerr << "Error: --in-tray is required\n"; return 1; }
 
     // ── 1. Load tray ──────────────────────────────────────────────────────────
     Tray tray;
@@ -961,14 +619,14 @@ static int cmd_encaps(int argc, char* argv[]) {
 
 // ── decaps command ────────────────────────────────────────────────────────────
 
-static int cmd_decaps(int argc, char* argv[]) {
+static int cmd_tray_decaps(int argc, char* argv[]) {
     std::string png_file, out_file, pwfile;
     for (int i = 1; i < argc; ++i) {
-        if (std::strcmp(argv[i], "--tray") == 0) {
-            if (++i >= argc) { std::cerr << "Error: --tray requires a filename\n"; return 1; }
+        if (std::strcmp(argv[i], "--in-png") == 0) {
+            if (++i >= argc) { std::cerr << "Error: --in-png requires a filename\n"; return 1; }
             png_file = argv[i];
-        } else if (std::strcmp(argv[i], "--out") == 0) {
-            if (++i >= argc) { std::cerr << "Error: --out requires a filename\n"; return 1; }
+        } else if (std::strcmp(argv[i], "--out-tray") == 0) {
+            if (++i >= argc) { std::cerr << "Error: --out-tray requires a filename\n"; return 1; }
             out_file = argv[i];
         } else if (std::strcmp(argv[i], "--pwfile") == 0) {
             if (++i >= argc) { std::cerr << "Error: --pwfile requires a filename\n"; return 1; }
@@ -977,7 +635,7 @@ static int cmd_decaps(int argc, char* argv[]) {
             std::cerr << "Error: unknown option: " << argv[i] << "\n"; return 1;
         }
     }
-    if (png_file.empty()) { std::cerr << "Error: --tray is required\n"; return 1; }
+    if (png_file.empty()) { std::cerr << "Error: --in-png is required\n"; return 1; }
 
     // ── 1. Load PNG ───────────────────────────────────────────────────────────
     unsigned char* png_bytes = nullptr;
@@ -1231,10 +889,8 @@ int main(int argc, char* argv[]) {
     if (argc < 2) { print_usage(argv[0]); return 1; }
 
     const std::string cmd = argv[1];
-    if (cmd == "render") return cmd_render(argc - 1, argv + 1);
-    if (cmd == "decode") return cmd_decode(argc - 1, argv + 1);
-    if (cmd == "encaps") return cmd_encaps(argc - 1, argv + 1);
-    if (cmd == "decaps") return cmd_decaps(argc - 1, argv + 1);
+    if (cmd == "tray-encaps") return cmd_tray_encaps(argc - 1, argv + 1);
+    if (cmd == "tray-decaps") return cmd_tray_decaps(argc - 1, argv + 1);
     if (cmd == "--help" || cmd == "-h") { print_usage(argv[0]); return 0; }
 
     std::cerr << "Error: unknown command '" << cmd << "'\n";

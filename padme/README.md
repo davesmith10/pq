@@ -1,75 +1,23 @@
-# padme — Tray Visualizer, Decoder, and Encapsulator
+# padme — Tray Encapsulator
 
-`padme` reads a Crystals tray file (produced by `scotty`) and renders its key material as a
-PNG image. Each key byte becomes one colored pixel in a rainbow-spectrum palette. The image
-is a shareable, conversation-starting visual artifact of a cryptographic identity — and it
-is also a fully recoverable archive: `padme decode` reads the PNG back and reconstructs a
-working tray.
-
-`padme encaps` goes further: it renders the tray into a 256-pixel-wide annotated image and
-encrypts the private key bytes with a password (scrypt + AES-256-GCM). The resulting PNG
-carries the public keys in plaintext pixels, the encrypted secret keys as ciphertext pixels,
-and all decryption metadata in an iTXt chunk. `padme decaps` reverses the process.
+`padme tray-encaps` renders a Crystals tray (produced by `scotty`) into a 256-pixel-wide annotated
+PNG and encrypts the private key bytes with a password (scrypt + AES-256-GCM). The resulting
+PNG carries the public keys as plaintext rainbow pixels, the encrypted secret keys as
+ciphertext pixels, and all decryption metadata in an iTXt chunk. `padme tray-decaps` reverses the
+process, recovering the original tray from the password-protected PNG.
 
 ---
 
 ## Commands
 
 ```
-padme render  --tray <file>     [--out <file.png>]
-padme decode  --tray <file.png> [--out <file>]
-padme encaps  --tray <file>     [--out <file.png>] [--pwfile <file>]
-padme decaps  --tray <file.png> [--out <file>]     [--pwfile <file>]
+padme tray-encaps  --in-tray <file>     [--out-png <file.png>] [--pwfile <file>]
+padme tray-decaps  --in-png <file.png>  [--out-tray <file>]    [--pwfile <file>]
 ```
 
 ---
 
-### render
-
-Visualizes a tray as a compact PNG (88 px wide for 4-slot trays).
-
-| Flag | Description |
-|------|-------------|
-| `--tray <file>` | Source tray (YAML or msgpack, auto-detected) |
-| `--out <file.png>` | Output PNG (default: `<alias>.png`) |
-
-```bash
-scotty keygen --alias alice --tray level3 > alice.tray.yaml
-padme render --tray alice.tray.yaml --out alice.png
-# Rendered tray 'alice' → alice.png (88×232 px, 4 slots)
-
-padme render --tray bob.tray --out bob.png   # msgpack input works too
-```
-
----
-
-### decode
-
-Recovers a tray from a `padme render` PNG. Refuses to operate on encaps PNGs (use `decaps`).
-
-| Flag | Description |
-|------|-------------|
-| `--tray <file.png>` | padme render PNG to decode |
-| `--out <file>` | Output file: YAML if `.yaml`/`.yml`, msgpack otherwise (default: YAML to stdout) |
-
-```bash
-# Inspect on stdout
-padme decode --tray alice.png
-
-# Recover as YAML
-padme decode --tray alice.png --out alice-recovered.yaml
-
-# Recover as msgpack
-padme decode --tray alice.png --out alice-recovered.tray
-
-# Verify recovered tray is cryptographically identical
-obi-wan encrypt --tray alice.tray      plaintext.txt > enc.arm
-obi-wan decrypt --tray alice-recovered.tray enc.arm    # succeeds
-```
-
----
-
-### encaps
+### tray-encaps
 
 Renders a tray into a 256-pixel-wide annotated PNG and password-encrypts the private key
 bytes in place. Public keys are stored as plaintext rainbow pixels; secret keys are replaced
@@ -78,50 +26,50 @@ UUID) and a copyright footer.
 
 | Flag | Description |
 |------|-------------|
-| `--tray <file>` | Source tray (YAML or msgpack) |
-| `--out <file.png>` | Output PNG (default: `<alias>_enc.png`) |
+| `--in-tray <file>` | Source tray (YAML or msgpack, auto-detected) |
+| `--out-png <file.png>` | Output PNG (default: `<alias>_enc.png`) |
 | `--pwfile <file>` | Read password from file (newline stripped). Prompts `password:` + `again:` if omitted. |
 
 ```bash
 # Interactive (prompts twice)
-padme encaps --tray alice.tray --out alice_enc.png
+padme tray-encaps --in-tray alice.tray --out-png alice_enc.png
 
 # From a password file
 echo "hunter2" > pw.txt
-padme encaps --tray alice.tray --pwfile pw.txt --out alice_enc.png
+padme tray-encaps --in-tray alice.tray --pwfile pw.txt --out-png alice_enc.png
 # Encaps: tray 'alice' → alice_enc.png (scrypt N=2^19, AES-256-GCM)
 ```
 
 ---
 
-### decaps
+### tray-decaps
 
 Decrypts the private keys from an encaps PNG and reconstructs the original tray.
 
 | Flag | Description |
 |------|-------------|
-| `--tray <file.png>` | encaps PNG produced by `padme encaps` |
-| `--out <file>` | Output file: YAML if `.yaml`/`.yml`, msgpack otherwise (default: YAML to stdout) |
+| `--in-png <file.png>` | encaps PNG produced by `padme tray-encaps` |
+| `--out-tray <file>` | Output file: YAML if `.yaml`/`.yml`, msgpack otherwise (default: YAML to stdout) |
 | `--pwfile <file>` | Read password from file. Prompts `password:` once if omitted. |
 
 ```bash
 # Recover to stdout (YAML)
-padme decaps --tray alice_enc.png
+padme tray-decaps --in-png alice_enc.png
 
 # Recover to YAML file
-padme decaps --tray alice_enc.png --out alice-recovered.yaml
+padme tray-decaps --in-png alice_enc.png --out-tray alice-recovered.yaml
 
 # Recover to msgpack file
-padme decaps --tray alice_enc.png --out alice-recovered.tray
+padme tray-decaps --in-png alice_enc.png --out-tray alice-recovered.tray
 
 # Wrong password → exit 2
-echo "wrong" | padme decaps --tray alice_enc.png --pwfile /dev/stdin
+echo "wrong" | padme tray-decaps --in-png alice_enc.png --pwfile /dev/stdin
 # Error: decryption failed — wrong password or corrupted image
 ```
 
 ---
 
-## Encryption Scheme (encaps/decaps)
+## Encryption Scheme
 
 ```
 Key hierarchy:
@@ -139,38 +87,7 @@ centered row of colored pixels between the key blocks and the footer. Decryption
 
 ---
 
-## Visual Layout
-
-### render / decode (88 px wide)
-
-For 4-slot trays (level2-25519, level2, level3, level5):
-
-```
-┌────────────────────────────────────────┐
-│  classical pk  │  classical sk         │  ← small (32–194 bytes each)
-├────────────────┼───────────────────────┤
-│  PQ pk         │  PQ sk                │  ← large (2112–8736 bytes each)
-└────────────────┴───────────────────────┘
-```
-
-- **Width**: 88 px (8px margin + 32px + 8px gap + 32px + 8px margin)
-- **Pixels**: 1 pixel per key byte, rainbow spectrum (byte 0 → red, 128 → cyan, 255 → near-red)
-- **Padding**: last partial row zero-padded
-
-For 2-slot trays (level0, level1), slots are stacked vertically in a single 48 px wide column.
-
-#### Dimensions by profile (private trays)
-
-| Profile | Layout | Width | Height |
-|---------|--------|-------|--------|
-| level0 | stack | 48 px | ~28 px |
-| level1 | stack | 48 px | ~221 px |
-| level2-25519 | grid | 88 px | ~157 px |
-| level2 | grid | 88 px | ~157 px |
-| level3 | grid | 88 px | ~232 px |
-| level5 | grid | 88 px | ~285 px |
-
-### encaps / decaps (256 px wide)
+## Visual Layout (256 px wide)
 
 ```
 ┌─────────────────────────────────────────────────────────┐  ← 12px margin
@@ -196,7 +113,7 @@ locked to the password.
 
 ## PNG Format Notes
 
-### crystals-tray iTXt chunk (render and encaps)
+### crystals-tray iTXt chunk
 
 ```
 alias=alice
@@ -206,7 +123,7 @@ created=2026-03-12T02:35:52Z
 expires=2028-03-12T02:35:52Z
 ```
 
-### crystals-encaps iTXt chunk (encaps only)
+### crystals-encaps iTXt chunk
 
 ```
 salt=<base64-16-bytes>
@@ -217,10 +134,7 @@ sk_nonce=<base64-12-bytes>
 sk_tag=<base64-16-bytes>
 ```
 
-The presence of the `crystals-encaps` chunk distinguishes encaps PNGs from render PNGs.
-`padme decode` refuses encaps PNGs; `padme decaps` requires them.
-
-### Palette inversion
+### Palette
 
 `byte_to_rgb` maps 256 byte values to 256 distinct RGB triples — a bijection, so the
 inverse is exact. The hue range is 0°–358.6° (dividing by 256, not 255) to prevent byte 0
