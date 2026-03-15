@@ -51,6 +51,25 @@ static std::string read_file_text_pw(const std::string& path) {
                         std::istreambuf_iterator<char>());
 }
 
+// Read first line of a file into buf (for --pwfile).
+// Returns true on success.
+static bool read_pwfile(const std::string& path, char* buf, int buflen) {
+    std::ifstream f(path);
+    if (!f) {
+        std::cerr << "Error: cannot open pwfile: " << path << "\n";
+        return false;
+    }
+    std::string line;
+    std::getline(f, line);
+    if ((int)line.size() >= buflen) {
+        std::cerr << "Error: password in pwfile is too long\n";
+        return false;
+    }
+    std::memcpy(buf, line.data(), line.size());
+    buf[line.size()] = '\0';
+    return true;
+}
+
 // Prompt for password (twice for encryption, once for decryption).
 // Returns false on failure.
 static bool prompt_password_confirm(char* buf, int buflen) {
@@ -131,10 +150,10 @@ static void kyber_decaps(int level, const std::vector<uint8_t>& sk,
 
 int cmd_pwencrypt(int argc, char* argv[]) {
     // argv[0] = "pwencrypt"
-    // Parse: [--level 512|768|1024] [--scrypt-n 20] <infile> <outfile>
+    // Parse: [--level 512|768|1024] [--scrypt-n 20] [--pwfile <file>] <infile> <outfile>
     int level = 768;
     int scrypt_n_log2 = 20;
-    std::string infile, outfile;
+    std::string infile, outfile, pwfile;
 
     for (int i = 1; i < argc; ++i) {
         if (std::strcmp(argv[i], "--level") == 0) {
@@ -160,6 +179,12 @@ int cmd_pwencrypt(int argc, char* argv[]) {
                 std::cerr << "Error: --scrypt-n must be between 16 and 22\n";
                 return 1;
             }
+        } else if (std::strcmp(argv[i], "--pwfile") == 0) {
+            if (++i >= argc) {
+                std::cerr << "Error: --pwfile requires a filename\n";
+                return 1;
+            }
+            pwfile = argv[i];
         } else if (argv[i][0] == '-') {
             std::cerr << "Error: unknown option '" << argv[i] << "'\n";
             return 1;
@@ -174,7 +199,7 @@ int cmd_pwencrypt(int argc, char* argv[]) {
     }
 
     if (infile.empty() || outfile.empty()) {
-        std::cerr << "Usage: pwencrypt [--level 512|768|1024] [--scrypt-n 20] <infile> <outfile>\n";
+        std::cerr << "Usage: pwencrypt [--level 512|768|1024] [--scrypt-n 20] [--pwfile <file>] <infile> <outfile>\n";
         return 1;
     }
 
@@ -187,9 +212,13 @@ int cmd_pwencrypt(int argc, char* argv[]) {
         return 3;
     }
 
-    // Prompt for password (twice)
+    // Get password (from file or prompt)
     char passwd[256] = {};
-    if (!prompt_password_confirm(passwd, (int)sizeof(passwd))) {
+    if (!pwfile.empty()) {
+        if (!read_pwfile(pwfile, passwd, (int)sizeof(passwd))) {
+            return 1;
+        }
+    } else if (!prompt_password_confirm(passwd, (int)sizeof(passwd))) {
         std::cerr << "Error: passwords do not match or input failed\n";
         OPENSSL_cleanse(passwd, sizeof(passwd));
         return 1;
@@ -299,11 +328,17 @@ int cmd_pwencrypt(int argc, char* argv[]) {
 
 int cmd_pwdecrypt(int argc, char* argv[]) {
     // argv[0] = "pwdecrypt"
-    // Parse: <infile> <outfile>
-    std::string infile, outfile;
+    // Parse: [--pwfile <file>] <infile> <outfile>
+    std::string infile, outfile, pwfile;
 
     for (int i = 1; i < argc; ++i) {
-        if (argv[i][0] == '-') {
+        if (std::strcmp(argv[i], "--pwfile") == 0) {
+            if (++i >= argc) {
+                std::cerr << "Error: --pwfile requires a filename\n";
+                return 1;
+            }
+            pwfile = argv[i];
+        } else if (argv[i][0] == '-') {
             std::cerr << "Error: unknown option '" << argv[i] << "'\n";
             return 1;
         } else if (infile.empty()) {
@@ -317,7 +352,7 @@ int cmd_pwdecrypt(int argc, char* argv[]) {
     }
 
     if (infile.empty() || outfile.empty()) {
-        std::cerr << "Usage: pwdecrypt <infile> <outfile>\n";
+        std::cerr << "Usage: pwdecrypt [--pwfile <file>] <infile> <outfile>\n";
         return 1;
     }
 
@@ -332,9 +367,13 @@ int cmd_pwdecrypt(int argc, char* argv[]) {
         return 3;
     }
 
-    // Prompt for password (once)
+    // Get password (from file or prompt)
     char passwd[256] = {};
-    if (!prompt_password_once(passwd, (int)sizeof(passwd))) {
+    if (!pwfile.empty()) {
+        if (!read_pwfile(pwfile, passwd, (int)sizeof(passwd))) {
+            return 1;
+        }
+    } else if (!prompt_password_once(passwd, (int)sizeof(passwd))) {
         std::cerr << "Error: password input failed\n";
         return 1;
     }

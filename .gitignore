@@ -8,6 +8,8 @@
 /libcrystals/build/
 /padme/build/
 /padme/tmp/
+/obi-wan/tmp/
+/tmp/
 
 # Prerequisites
 *.d

@@ -1,0 +1,201 @@
+# obi-wan
+
+Hybrid post-quantum + classical file encryption, signing, and token generation.
+Operates on **trays** produced by [scotty](../scotty/), which bundle a classical key
+pair (X25519/P-curve ECDH + Ed25519/ECDSA) with a post-quantum pair (Kyber KEM +
+Dilithium signature) at the chosen security level.
+
+## Commands
+
+```
+obi-wan encrypt --tray <file> [--kdf SHAKE|KMAC] [--cipher AES-256-GCM|ChaCha20] <target-file>
+obi-wan decrypt --tray <file> <target-file>
+obi-wan sign    --tray <file> <target-file>
+obi-wan verify  --tray <file> <target-file>
+obi-wan gentok  --tray <file> --data <string> [--ttl <seconds>]
+obi-wan valtok  --tray <file> [token-file]
+obi-wan pwencrypt [--level 512|768|1024] [--scrypt-n 20] [--pwfile <file>] <infile> <outfile>
+obi-wan pwdecrypt [--pwfile <file>] <infile> <outfile>
+```
+
+### encrypt / decrypt
+
+Encrypts a file using both the classical KEM slot and the Kyber KEM slot from the tray.
+The two shared secrets are combined via a hybrid KDF; the result encrypts the payload
+with the chosen symmetric cipher.
+
+Output is written to stdout as a PEM-armored `OBIWAN ENCRYPTED FILE`.
+
+**Options:**
+- `--kdf SHAKE` (default) — SHAKE-256 over length-prefixed concatenation of both shared secrets
+- `--kdf KMAC` — KMAC-256 keyed with the classical shared secret, message = PQ shared secret + ciphertexts
+- `--cipher AES-256-GCM` (default)
+- `--cipher ChaCha20` — ChaCha20-Poly1305
+
+Tray files are accepted in either YAML or binary msgpack format (auto-detected).
+
+### sign / verify
+
+Encrypts and signs a file using all four slots in the tray: both KEM slots protect the
+symmetric key (same as `encrypt`), and both signature slots (Ed25519/ECDSA + Dilithium)
+sign the header and encrypted payload.
+
+Output is written to stdout as a PEM-armored `HYKE SIGNED FILE`.
+
+`verify` checks both signatures before decrypting. Any tampering causes exit code 2.
+
+Requires a tray at level2-25519, level2, level3, or level5 (all four slots must be present).
+
+### gentok / valtok
+
+Issues and validates compact signed tokens bound to a tray identity.
+
+```bash
+# Generate a token (writes base64 to stdout)
+obi-wan gentok --tray alice.tray --data "user=alice" [--ttl 3600]
+
+# Validate a token (reads from file or stdin)
+obi-wan valtok --tray alice.tray token.b64
+echo "<base64>" | obi-wan valtok --tray alice.tray
+```
+
+- `--data` — 1–256 byte payload string embedded in the token
+- `--ttl` — lifetime in seconds (default 86400 = 24 h)
+- Tokens are signed with ECDSA P-256 (the first classical sig slot); requires a level2 or higher tray
+- `valtok` exits 0 and prints the data payload if the signature is valid and the token has not expired
+
+### pwencrypt / pwdecrypt
+
+Password-based encryption; no tray required. Generates an ephemeral Kyber keypair,
+derives a wrap key from the password via scrypt, and encrypts the file with two
+nested AES-256-GCM layers.
+
+```bash
+obi-wan pwencrypt [--level 512|768|1024] [--scrypt-n 20] [--pwfile <file>] <infile> <outfile>
+obi-wan pwdecrypt [--pwfile <file>] <infile> <outfile>
+```
+
+- `--level` — Kyber security level for the ephemeral KEM (default 768)
+- `--scrypt-n` — log₂ of the scrypt N parameter (default 20 = 1 048 576 iterations; range 16–22)
+- `--pwfile` — read password from the first line of a file (prompts on the terminal if omitted; `pwencrypt` prompts twice for confirmation)
+
+Output is a PEM-armored `OBIWAN PW ENCRYPTED FILE`.
+
+## Tray Profiles
+
+Trays are created by [scotty](../scotty/) and passed via `--tray`.
+
+| Profile       | Classical KEM | PQ KEM     | Classical Sig | PQ Sig      |
+|---------------|---------------|------------|---------------|-------------|
+| level0        | X25519        | —          | Ed25519       | —           |
+| level1        | —             | Kyber512   | —             | Dilithium2  |
+| level2-25519  | X25519        | Kyber512   | Ed25519       | Dilithium2  |
+| level2        | P-256         | Kyber512   | ECDSA P-256   | Dilithium2  |
+| level3        | P-384         | Kyber768   | ECDSA P-384   | Dilithium3  |
+| level5        | P-521         | Kyber1024  | ECDSA P-521   | Dilithium5  |
+
+`encrypt`/`decrypt` work with level0 through level5 (uses whichever KEM slots are present).
+`sign`/`verify` and `gentok`/`valtok` require all four slots (level2-25519 through level5).
+
+## Wire Formats
+
+### OBIWAN (encrypt)
+
+```
+"OBIWAN01" (8B) | kdf (1B) | cipher (1B)
+| ct_classical_len (4B BE) | ct_classical
+| ct_pq_len (4B BE)        | ct_pq
+| nonce (12B) | tag (16B)  | ciphertext
+```
+
+Wrapped in `-----BEGIN/END OBIWAN ENCRYPTED FILE-----` PEM armor (base64, 64-char lines).
+
+### HYKE (sign)
+
+```
+"HYKE" (4B) | version (2B) | tray_id (1B) | flags (1B)
+| header_len (4B BE) | payload_len (4B BE)
+| tray_uuid (16B) | salt (32B)
+| ct_classical_len (4B) | ct_pq_len (4B) | sig_classical_len (4B) | sig_pq_len (4B)
+| ct_classical | ct_pq | sig_classical | sig_pq
+| nonce (12B) | tag (16B) | ciphertext
+```
+
+Signatures cover a 64-byte context binding (KMAC-256 over both public keys) concatenated
+with the partial header and encrypted payload. Classical signatures use P1363 format
+(raw r‖s); Dilithium signatures are raw bytes from the reference implementation.
+
+Wrapped in `-----BEGIN/END HYKE SIGNED FILE-----` PEM armor.
+
+### PWENC (pwencrypt)
+
+```
+"OBWE" (4B) | version (1B) | level (2B BE)
+| salt (32B) | scrypt_n_log2 (1B) | scrypt_r (1B) | scrypt_p (1B)
+| pk | ct
+| wrap_nonce (12B) | wrap_tag (16B) | sk_enc
+| data_nonce (12B) | data_tag (16B) | ciphertext
+```
+
+The scrypt-derived wrap key decrypts `sk_enc` → ephemeral Kyber sk → decapsulate `ct` → data key → decrypt ciphertext.
+
+Wrapped in `-----BEGIN/END OBIWAN PW ENCRYPTED FILE-----` PEM armor.
+
+### Token (gentok)
+
+```
+"obi-wan\0" (8B) | version (2B)
+| TLV[0x01: data] | TLV[0x02: issued_at] | TLV[0x03: expires_at]
+| TLV[0x04: tray_uuid] | TLV[0x05: algorithm]
+| sig_len (4B BE) | signature
+```
+
+Tokens are output as a single base64 line (no PEM armor).
+
+## Build
+
+```bash
+cmake -S pq/obi-wan -B pq/obi-wan/build \
+  -DCMAKE_PREFIX_PATH=/path/to/Crystals/local
+cmake --build pq/obi-wan/build -j$(nproc)
+# Binary: pq/obi-wan/build/obi-wan
+```
+
+Dependencies resolved via `CMAKE_PREFIX_PATH`: BLAKE3, oneTBB, OpenSSL, yaml-cpp.
+Kyber and Dilithium are compiled from source via `add_subdirectory`.
+XKCP (`libXKCP.so`) is a pre-built dynamic library linked by full path.
+
+## Examples
+
+```bash
+# Generate a tray
+scotty keygen --alias alice --tray level2-25519 > alice.tray
+
+# Encrypt / decrypt
+obi-wan encrypt --tray alice.tray plaintext.txt > message.armored
+obi-wan decrypt --tray alice.tray message.armored > recovered.txt
+
+# Encrypt with KMAC + ChaCha20
+obi-wan encrypt --tray alice.tray --kdf KMAC --cipher ChaCha20 plaintext.txt > message.armored
+
+# Sign / verify
+obi-wan sign   --tray alice.tray document.pdf > document.hyke
+obi-wan verify --tray alice.tray document.hyke > document_out.pdf
+
+# Password encryption (no tray needed)
+obi-wan pwencrypt secret.txt secret.pwenc          # prompts for password
+obi-wan pwdecrypt --pwfile pw.txt secret.pwenc secret_out.txt
+
+# Token generation and validation
+obi-wan gentok --tray alice.tray --data "user=alice" --ttl 3600 > token.b64
+obi-wan valtok --tray alice.tray token.b64
+```
+
+## Exit Codes
+
+| Code | Meaning |
+|------|---------|
+| 0    | Success |
+| 1    | Usage / argument error |
+| 2    | Crypto failure (invalid signature, wrong password, tampered data) |
+| 3    | I/O error (file not found, read/write failure) |

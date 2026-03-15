@@ -490,15 +490,416 @@ static bool write_tray_file(const Tray& tray, const std::string& path, const cha
     return true;
 }
 
+// ── pngify / pngout image constants ──────────────────────────────────────────
+
+static const unsigned OBIWAN_IMG_W  = 500;
+static const unsigned OBIWAN_MARGIN = 12;
+static const unsigned OBIWAN_DATA_W = OBIWAN_IMG_W - 2 * OBIWAN_MARGIN;  // 476
+
+// ── pngify / pngout helpers ───────────────────────────────────────────────────
+
+// Returns "obiwan", "hyke", or "pwenc" from the BEGIN armor line.
+static std::string detect_armor_format(const std::string& first_line) {
+    if (first_line.find("BEGIN OBIWAN PW ENCRYPTED") != std::string::npos) return "pwenc";
+    if (first_line.find("BEGIN HYKE")                != std::string::npos) return "hyke";
+    if (first_line.find("BEGIN OBIWAN ENCRYPTED")    != std::string::npos) return "obiwan";
+    return "";
+}
+
+// Strip armor header/footer, concatenate base64 lines, base64_decode.
+static std::vector<uint8_t> dearmor_bytes(const std::string& text, const std::string& fmt) {
+    std::string b64;
+    std::istringstream ss(text);
+    std::string line;
+    bool in_body = false;
+    while (std::getline(ss, line)) {
+        // trim \r
+        if (!line.empty() && line.back() == '\r') line.pop_back();
+        if (line.find("-----BEGIN ") == 0) { in_body = true; continue; }
+        if (line.find("-----END ")   == 0) break;
+        if (in_body) b64 += line;
+    }
+    (void)fmt;
+    return base64_decode(b64);
+}
+
+// OBIWAN wire: "OBIWAN01"(8) + kdf(1) + cipher(1) + ct_cl_len u32be(4) + ct_cl + ct_pq_len u32be(4) + ...
+static std::string obiwan_level_str(const std::vector<uint8_t>& wire) {
+    if (wire.size() < 14) return "unknown";
+    uint32_t ct_cl_len = (uint32_t(wire[10]) << 24) | (uint32_t(wire[11]) << 16)
+                       | (uint32_t(wire[12]) << 8)  |  uint32_t(wire[13]);
+    size_t off2 = 14 + ct_cl_len;
+    if (off2 + 4 > wire.size()) return "unknown";
+    uint32_t ct_pq_len = (uint32_t(wire[off2])   << 24) | (uint32_t(wire[off2+1]) << 16)
+                       | (uint32_t(wire[off2+2])  <<  8) |  uint32_t(wire[off2+3]);
+    if (ct_cl_len == 0  && ct_pq_len == 768)  return "level1";
+    if (ct_cl_len == 32 && ct_pq_len == 768)  return "level2-25519";
+    if (ct_cl_len == 65 && ct_pq_len == 768)  return "level2";
+    if (ct_cl_len == 97 && ct_pq_len == 1088) return "level3";
+    if (ct_cl_len == 133&& ct_pq_len == 1568) return "level5";
+    if (ct_cl_len > 0  && ct_pq_len == 0)     return "level0";
+    return "unknown";
+}
+
+// HYKE wire: offset 6 = tray_id byte
+static std::string hyke_level_str(const std::vector<uint8_t>& wire) {
+    if (wire.size() < 7) return "unknown";
+    switch (wire[6]) {
+        case 0x01: return "level2-25519";
+        case 0x02: return "level2";
+        case 0x03: return "level3";
+        case 0x04: return "level5";
+        default:   return "unknown";
+    }
+}
+
+// PWENC wire: uint16 big-endian at offset 5
+static std::string pwenc_level_str(const std::vector<uint8_t>& wire) {
+    if (wire.size() < 7) return "unknown";
+    uint16_t lvl = (uint16_t(wire[5]) << 8) | wire[6];
+    if (lvl == 512)  return "512";
+    if (lvl == 768)  return "768";
+    if (lvl == 1024) return "1024";
+    return "unknown";
+}
+
+// Format 16 UUID bytes as "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+static std::string format_uuid_bytes(const uint8_t* uuid) {
+    char buf[37];
+    std::snprintf(buf, sizeof(buf),
+        "%02x%02x%02x%02x-%02x%02x-%02x%02x-%02x%02x-%02x%02x%02x%02x%02x%02x",
+        uuid[0],  uuid[1],  uuid[2],  uuid[3],
+        uuid[4],  uuid[5],
+        uuid[6],  uuid[7],
+        uuid[8],  uuid[9],
+        uuid[10], uuid[11], uuid[12], uuid[13], uuid[14], uuid[15]);
+    return buf;
+}
+
+// Compute y_data from format: 1 header line (obiwan/pwenc) → 28; 2 header lines (hyke) → 38
+static unsigned pngify_y_data(const std::string& fmt) {
+    if (fmt == "hyke")
+        return OBIWAN_MARGIN + LINE_SPACING + FONT_H + ENCAPS_GAP;  // 12+10+8+8 = 38
+    return OBIWAN_MARGIN + FONT_H + ENCAPS_GAP;                     // 12+8+8    = 28
+}
+
+// Make crystals-obiwan iTXt text
+static std::string make_obiwan_text(const std::string& fmt, size_t data_len) {
+    std::ostringstream ss;
+    ss << "format="   << fmt      << "\n"
+       << "data_len=" << data_len << "\n";
+    return ss.str();
+}
+
+struct OBIWANMeta { std::string format; size_t data_len = 0; };
+
+static OBIWANMeta parse_obiwan_meta(const std::string& text) {
+    OBIWANMeta m;
+    std::istringstream ss(text);
+    std::string line;
+    while (std::getline(ss, line)) {
+        auto eq = line.find('=');
+        if (eq == std::string::npos) continue;
+        std::string key = line.substr(0, eq);
+        std::string val = line.substr(eq + 1);
+        if      (key == "format")   m.format   = val;
+        else if (key == "data_len") m.data_len = std::stoull(val);
+    }
+    if (m.format.empty() || m.data_len == 0)
+        throw std::runtime_error("crystals-obiwan iTXt chunk is missing required fields");
+    return m;
+}
+
+// Armor bytes with 64-char line breaks and armor header/footer
+static std::string rearmor_bytes(const std::vector<uint8_t>& data, const std::string& fmt) {
+    std::string begin_marker, end_marker;
+    if (fmt == "hyke") {
+        begin_marker = "-----BEGIN HYKE SIGNED FILE-----";
+        end_marker   = "-----END HYKE SIGNED FILE-----";
+    } else if (fmt == "pwenc") {
+        begin_marker = "-----BEGIN OBIWAN PW ENCRYPTED FILE-----";
+        end_marker   = "-----END OBIWAN PW ENCRYPTED FILE-----";
+    } else {
+        begin_marker = "-----BEGIN OBIWAN ENCRYPTED FILE-----";
+        end_marker   = "-----END OBIWAN ENCRYPTED FILE-----";
+    }
+
+    std::string b64 = base64_encode(data.data(), data.size());
+    std::string out = begin_marker + "\n";
+    for (size_t i = 0; i < b64.size(); i += 64) {
+        out += b64.substr(i, 64);
+        out += "\n";
+    }
+    out += end_marker + "\n";
+    return out;
+}
+
+// Build the 500px-wide pngify image
+static ImageResult build_pngify_image(const std::string& fmt,
+                                       const std::string& level_str,
+                                       const std::string& uuid_str,
+                                       const std::vector<uint8_t>& data) {
+    const unsigned img_w  = OBIWAN_IMG_W;
+    const unsigned y_data = pngify_y_data(fmt);
+    unsigned data_rows = (unsigned)((data.size() + OBIWAN_DATA_W - 1) / OBIWAN_DATA_W);
+    if (data_rows == 0) data_rows = 1;
+
+    unsigned y_cpy1 = y_data + data_rows + ENCAPS_GAP;
+    unsigned y_cpy2 = y_cpy1 + LINE_SPACING;
+    unsigned img_h  = y_cpy2 + FONT_H + OBIWAN_MARGIN;
+
+    std::vector<uint8_t> pixels(img_w * img_h * 4, 0xFF);
+
+    std::array<uint8_t, 3> fg_dark  = {20,  20,  20};
+    std::array<uint8_t, 3> bg_white = {255, 255, 255};
+
+    // Header text
+    std::string title;
+    if (fmt == "hyke")    title = "OBIWAN HYKE SIGNED FILE - "    + level_str;
+    else if (fmt == "pwenc") title = "OBIWAN PW ENCRYPTED FILE - " + level_str;
+    else                  title = "OBIWAN ENCRYPTED FILE - "       + level_str;
+
+    draw_text(pixels, img_w, OBIWAN_MARGIN, OBIWAN_MARGIN, title, fg_dark, bg_white);
+
+    if (fmt == "hyke" && !uuid_str.empty()) {
+        unsigned y_uuid = OBIWAN_MARGIN + LINE_SPACING;
+        draw_text(pixels, img_w, OBIWAN_MARGIN, y_uuid, uuid_str, fg_dark, bg_white);
+    }
+
+    // Data region
+    fill_block(pixels, img_w, data, data_rows, OBIWAN_MARGIN, y_data, OBIWAN_DATA_W);
+
+    // Copyright footer (centered over the 476px data region)
+    const std::string cpy1 = "\xC2\xA9 2026 David R. Smith";
+    const std::string cpy2 = "All Rights Reserved";
+    unsigned content_w = OBIWAN_DATA_W;
+    unsigned cpy1_w = text_pixel_width(cpy1);
+    unsigned cpy2_w = text_pixel_width(cpy2);
+    unsigned x_cpy1 = OBIWAN_MARGIN + (content_w - cpy1_w) / 2;
+    unsigned x_cpy2 = OBIWAN_MARGIN + (content_w - cpy2_w) / 2;
+    draw_text(pixels, img_w, x_cpy1, y_cpy1, cpy1, fg_dark, bg_white);
+    draw_text(pixels, img_w, x_cpy2, y_cpy2, cpy2, fg_dark, bg_white);
+
+    return {std::move(pixels), img_w, img_h};
+}
+
+// Write PNG with only a crystals-obiwan iTXt chunk (no crystals-tray chunk)
+static void write_obiwan_png(const ImageResult& img, const std::string& out_file,
+                              const std::string& obiwan_text) {
+    LodePNGState state;
+    lodepng_state_init(&state);
+    state.info_raw.colortype = LCT_RGBA;
+    state.info_raw.bitdepth  = 8;
+    state.info_png.color.colortype = LCT_RGBA;
+    state.info_png.color.bitdepth  = 8;
+    state.encoder.auto_convert = 0;
+
+    unsigned err = lodepng_add_itext(&state.info_png,
+                                      "crystals-obiwan", "", "crystals-obiwan",
+                                      obiwan_text.c_str());
+    if (err) {
+        lodepng_state_cleanup(&state);
+        throw std::runtime_error(std::string("iTXt error: ") + lodepng_error_text(err));
+    }
+
+    unsigned char* png_buf = nullptr;
+    size_t png_size = 0;
+    err = lodepng_encode(&png_buf, &png_size, img.pixels.data(), img.w, img.h, &state);
+    lodepng_state_cleanup(&state);
+    if (err) {
+        free(png_buf);
+        throw std::runtime_error(std::string("PNG encode error: ") + lodepng_error_text(err));
+    }
+
+    err = lodepng_save_file(png_buf, png_size, out_file.c_str());
+    free(png_buf);
+    if (err)
+        throw std::runtime_error(std::string("PNG write error: ") + lodepng_error_text(err));
+}
+
+// ── pngify command ────────────────────────────────────────────────────────────
+
+static int cmd_pngify(int argc, char* argv[]) {
+    std::string in_file, out_file;
+    for (int i = 1; i < argc; ++i) {
+        if (std::strcmp(argv[i], "--in") == 0) {
+            if (++i >= argc) { std::cerr << "Error: --in requires a filename\n"; return 1; }
+            in_file = argv[i];
+        } else if (std::strcmp(argv[i], "--out") == 0) {
+            if (++i >= argc) { std::cerr << "Error: --out requires a filename\n"; return 1; }
+            out_file = argv[i];
+        } else {
+            std::cerr << "Error: unknown option: " << argv[i] << "\n"; return 1;
+        }
+    }
+    if (in_file.empty())  { std::cerr << "Error: --in is required\n";  return 1; }
+    if (out_file.empty()) { std::cerr << "Error: --out is required\n"; return 1; }
+
+    // 1. Read input file
+    std::string text;
+    {
+        std::ifstream f(in_file);
+        if (!f) { std::cerr << "Error: cannot open: " << in_file << "\n"; return 3; }
+        std::ostringstream ss;
+        ss << f.rdbuf();
+        text = ss.str();
+    }
+
+    // 2. Detect format from first non-empty line
+    std::string fmt;
+    {
+        std::istringstream ss(text);
+        std::string line;
+        while (std::getline(ss, line)) {
+            if (!line.empty() && line.back() == '\r') line.pop_back();
+            if (!line.empty()) { fmt = detect_armor_format(line); break; }
+        }
+    }
+    if (fmt.empty()) {
+        std::cerr << "Error: unrecognized armor format in: " << in_file << "\n"; return 2;
+    }
+
+    // 3. Dearmor
+    std::vector<uint8_t> data;
+    try { data = dearmor_bytes(text, fmt); }
+    catch (const std::exception& e) {
+        std::cerr << "Error: dearmor failed: " << e.what() << "\n"; return 2;
+    }
+    if (data.empty()) {
+        std::cerr << "Error: empty payload after dearmoring\n"; return 2;
+    }
+
+    // 4. Extract level and UUID
+    std::string level_str, uuid_str;
+    if      (fmt == "obiwan") level_str = obiwan_level_str(data);
+    else if (fmt == "hyke")   { level_str = hyke_level_str(data); }
+    else                      level_str = pwenc_level_str(data);
+
+    if (fmt == "hyke" && data.size() >= 32) {
+        // UUID at offset 16 (after "HYKE" + 2 ver + tray_id(1) + flags(1) + header_len(4) + payload_len(4) + uuid(16))
+        // Actually per hyke_format.hpp: "HYKE"(4) + ver(2) + tray_id(1) + flags(1) + header_len(4) + payload_len(4) = 16 bytes, then uuid(16)
+        if (data.size() >= 32)
+            uuid_str = format_uuid_bytes(data.data() + 16);
+    }
+
+    // 5. Build image
+    ImageResult img = build_pngify_image(fmt, level_str, uuid_str, data);
+
+    // 6. Write PNG
+    try { write_obiwan_png(img, out_file, make_obiwan_text(fmt, data.size())); }
+    catch (const std::exception& e) {
+        std::cerr << "Error: " << e.what() << "\n"; return 3;
+    }
+
+    std::cout << "pngify: " << fmt << " [" << level_str << "] -> " << out_file
+              << " (" << data.size() << " bytes)\n";
+    return 0;
+}
+
+// ── pngout command ────────────────────────────────────────────────────────────
+
+static int cmd_pngout(int argc, char* argv[]) {
+    std::string in_file, out_file;
+    for (int i = 1; i < argc; ++i) {
+        if (std::strcmp(argv[i], "--in") == 0) {
+            if (++i >= argc) { std::cerr << "Error: --in requires a filename\n"; return 1; }
+            in_file = argv[i];
+        } else if (std::strcmp(argv[i], "--out") == 0) {
+            if (++i >= argc) { std::cerr << "Error: --out requires a filename\n"; return 1; }
+            out_file = argv[i];
+        } else {
+            std::cerr << "Error: unknown option: " << argv[i] << "\n"; return 1;
+        }
+    }
+    if (in_file.empty()) { std::cerr << "Error: --in is required\n"; return 1; }
+
+    // 1. Load PNG
+    unsigned char* png_bytes = nullptr;
+    size_t png_size = 0;
+    if (lodepng_load_file(&png_bytes, &png_size, in_file.c_str())) {
+        std::cerr << "Error: cannot read PNG file: " << in_file << "\n"; return 3;
+    }
+
+    LodePNGState state;
+    lodepng_state_init(&state);
+    state.info_raw.colortype = LCT_RGBA;
+    state.info_raw.bitdepth  = 8;
+
+    unsigned char* pixels_raw = nullptr;
+    unsigned img_w = 0, img_h = 0;
+    unsigned err = lodepng_decode(&pixels_raw, &img_w, &img_h, &state, png_bytes, png_size);
+    free(png_bytes);
+    if (err) {
+        free(pixels_raw);
+        lodepng_state_cleanup(&state);
+        std::cerr << "Error: PNG decode failed: " << lodepng_error_text(err) << "\n"; return 3;
+    }
+    std::vector<uint8_t> pixels(pixels_raw, pixels_raw + img_w * img_h * 4);
+    free(pixels_raw);
+
+    // 2. Find crystals-obiwan iTXt chunk
+    std::string obiwan_text;
+    for (size_t i = 0; i < state.info_png.itext_num; ++i) {
+        if (std::strcmp(state.info_png.itext_keys[i], "crystals-obiwan") == 0)
+            obiwan_text = state.info_png.itext_strings[i];
+    }
+    lodepng_state_cleanup(&state);
+
+    if (obiwan_text.empty()) {
+        std::cerr << "Error: no crystals-obiwan iTXt chunk — not a pngify PNG\n"; return 2;
+    }
+
+    // 3. Parse metadata
+    OBIWANMeta meta;
+    try { meta = parse_obiwan_meta(obiwan_text); }
+    catch (const std::exception& e) {
+        std::cerr << "Error: " << e.what() << "\n"; return 2;
+    }
+
+    // 4. Determine y_data
+    unsigned y_data = pngify_y_data(meta.format);
+
+    // 5. Read rainbow pixels
+    auto rlut = build_reverse_lut();
+    std::vector<uint8_t> data;
+    try {
+        data = read_block(pixels.data(), img_w, rlut,
+                          OBIWAN_MARGIN, y_data, meta.data_len, OBIWAN_DATA_W);
+    } catch (const std::exception& e) {
+        std::cerr << "Error: " << e.what() << "\n"; return 2;
+    }
+
+    // 6. Rearmor
+    std::string armored = rearmor_bytes(data, meta.format);
+
+    // 7. Write output
+    if (!out_file.empty()) {
+        std::ofstream f(out_file);
+        if (!f) { std::cerr << "Error: cannot write: " << out_file << "\n"; return 3; }
+        f << armored;
+    } else {
+        std::cout << armored;
+    }
+
+    if (!out_file.empty())
+        std::cout << "pngout: " << meta.format << " -> " << out_file
+                  << " (" << data.size() << " bytes)\n";
+    return 0;
+}
+
 // ── encaps command ────────────────────────────────────────────────────────────
 
 static void print_usage(const char* prog) {
     std::cerr <<
         "Usage: " << prog << " tray-encaps  --in-tray <file>     [--out-png <file.png>] [--pwfile <file>]\n"
         "       " << prog << " tray-decaps  --in-png <file.png>  [--out-tray <file>]    [--pwfile <file>]\n"
+        "       " << prog << " pngify       --in <file.armored>  --out <file.png>\n"
+        "       " << prog << " pngout       --in <file.png>      [--out <file.armored>]\n"
         "\n"
         "  tray-encaps  Render + password-encrypt private keys into a PNG\n"
         "  tray-decaps  Decrypt and recover a tray from an encaps PNG\n"
+        "  pngify       Convert an obi-wan armored file (OBIWAN/HYKE/PWENC) into a PNG\n"
+        "  pngout       Recover an armored file from a pngify PNG\n"
         "\n"
         "tray-encaps options:\n"
         "  --in-tray  <file>      Input tray (YAML or msgpack)\n"
@@ -508,7 +909,15 @@ static void print_usage(const char* prog) {
         "tray-decaps options:\n"
         "  --in-png   <file.png>  Input encaps PNG\n"
         "  --out-tray <file>      Output tray: YAML (.yaml/.yml) or msgpack (default: YAML to stdout)\n"
-        "  --pwfile   <file>      Read password from file (prompts if omitted)\n";
+        "  --pwfile   <file>      Read password from file (prompts if omitted)\n"
+        "\n"
+        "pngify options:\n"
+        "  --in  <file>           Input armored file (OBIWAN encrypted, HYKE signed, or PWENC)\n"
+        "  --out <file.png>       Output PNG\n"
+        "\n"
+        "pngout options:\n"
+        "  --in  <file.png>       Input pngify PNG\n"
+        "  --out <file>           Output armored file (default: stdout)\n";
 }
 
 static int cmd_tray_encaps(int argc, char* argv[]) {
@@ -891,6 +1300,8 @@ int main(int argc, char* argv[]) {
     const std::string cmd = argv[1];
     if (cmd == "tray-encaps") return cmd_tray_encaps(argc - 1, argv + 1);
     if (cmd == "tray-decaps") return cmd_tray_decaps(argc - 1, argv + 1);
+    if (cmd == "pngify")      return cmd_pngify(argc - 1, argv + 1);
+    if (cmd == "pngout")      return cmd_pngout(argc - 1, argv + 1);
     if (cmd == "--help" || cmd == "-h") { print_usage(argv[0]); return 0; }
 
     std::cerr << "Error: unknown command '" << cmd << "'\n";
