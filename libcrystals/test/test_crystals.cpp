@@ -83,6 +83,90 @@ static void test_keygen() {
     }
 }
 
+// ── Section 1b: mceliece+slhdsa keygen ────────────────────────────────────────
+// Note: McEliece keygen is slow (seconds per level); placed after fast crystals tests.
+
+static void test_keygen_mceliece() {
+    std::printf("=== Section 1b: mceliece+slhdsa keygen ===\n");
+
+    struct Case { TrayType t; const char* name; size_t slots; };
+    Case cases[] = {
+        { TrayType::McEliece_Level1, "ms-level1", 2 },
+        { TrayType::McEliece_Level2, "ms-level2", 4 },
+        { TrayType::McEliece_Level3, "ms-level3", 4 },
+        { TrayType::McEliece_Level4, "ms-level4", 4 },
+        { TrayType::McEliece_Level5, "ms-level5", 4 },
+    };
+
+    for (auto& c : cases) {
+        Tray tray = make_tray(c.t, "alice");
+        CHECK(tray.slots.size() == c.slots);
+        CHECK(!tray.id.empty());
+        CHECK(uuid_is_v8(tray.id));
+        CHECK(tray.alias == "alice");
+        CHECK(tray.profile_group == "mceliece+slhdsa");
+        CHECK(tray.type_str == c.name);
+
+        for (const auto& slot : tray.slots) {
+            CHECK(!slot.pk.empty());
+            CHECK(!slot.sk.empty());
+        }
+
+        // make_public_tray: same UUID, sk cleared
+        Tray pub = make_public_tray(tray);
+        CHECK(pub.id == tray.id);
+        CHECK(pub.alias == "alice.pub");
+        for (const auto& slot : pub.slots)
+            CHECK(slot.sk.empty());
+
+        std::printf("  %s: OK\n", c.name);
+    }
+}
+
+// ── Section 2b: mceliece+slhdsa YAML + msgpack round-trips ───────────────────
+
+static void test_mceliece_roundtrips() {
+    std::printf("=== Section 2b: mceliece+slhdsa round-trips ===\n");
+
+    Tray orig = make_tray(TrayType::McEliece_Level1, "mctest");
+
+    // YAML round-trip
+    {
+        std::string yaml = emit_tray_yaml(orig);
+        CHECK(!yaml.empty());
+        std::string path = tmp_path("ms_yaml.tray");
+        { std::ofstream f(path); f << yaml; }
+        Tray loaded = load_tray(path);
+        CHECK(loaded.id == orig.id);
+        CHECK(loaded.alias == orig.alias);
+        CHECK(loaded.profile_group == "mceliece+slhdsa");
+        CHECK(loaded.type_str == "ms-level1");
+        CHECK(loaded.slots.size() == orig.slots.size());
+        for (size_t i = 0; i < orig.slots.size(); ++i) {
+            CHECK(loaded.slots[i].alg_name == orig.slots[i].alg_name);
+            CHECK(loaded.slots[i].pk == orig.slots[i].pk);
+            CHECK(loaded.slots[i].sk == orig.slots[i].sk);
+        }
+        std::printf("  ms-level1 YAML round-trip: OK\n");
+    }
+
+    // Msgpack round-trip
+    {
+        std::string path = tmp_path("ms_msgpack.tray");
+        tray_mp::pack_to_file(orig, path);
+        Tray rt = load_tray(path);
+        CHECK(rt.id == orig.id);
+        CHECK(rt.alias == orig.alias);
+        CHECK(rt.profile_group == "mceliece+slhdsa");
+        CHECK(rt.slots.size() == orig.slots.size());
+        for (size_t i = 0; i < orig.slots.size(); ++i) {
+            CHECK(rt.slots[i].pk == orig.slots[i].pk);
+            CHECK(rt.slots[i].sk == orig.slots[i].sk);
+        }
+        std::printf("  ms-level1 msgpack round-trip: OK\n");
+    }
+}
+
 // ── Section 2: YAML round-trip ────────────────────────────────────────────────
 
 static void test_yaml_roundtrip() {
@@ -565,6 +649,9 @@ int main() {
         test_symmetric();
         test_pw_wire_format();
         test_token_format();
+        // McEliece keygen is slow — run after all fast tests
+        test_keygen_mceliece();
+        test_mceliece_roundtrips();
     } catch (const std::exception& e) {
         std::fprintf(stderr, "UNCAUGHT EXCEPTION: %s\n", e.what());
         return 1;
@@ -575,3 +662,4 @@ int main() {
 
     return (g_fail == 0) ? 0 : 1;
 }
+

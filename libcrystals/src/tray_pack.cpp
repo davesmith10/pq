@@ -15,6 +15,11 @@ static TrayType type_str_to_enum(const std::string& s) {
     if (s == "level2")       return TrayType::Level2;
     if (s == "level3")       return TrayType::Level3;
     if (s == "level5")       return TrayType::Level5;
+    if (s == "ms-level1")   return TrayType::McEliece_Level1;
+    if (s == "ms-level2")   return TrayType::McEliece_Level2;
+    if (s == "ms-level3")   return TrayType::McEliece_Level3;
+    if (s == "ms-level4")   return TrayType::McEliece_Level4;
+    if (s == "ms-level5")   return TrayType::McEliece_Level5;
     throw std::runtime_error("Unknown tray type string: " + s);
 }
 
