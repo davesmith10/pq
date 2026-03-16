@@ -1,17 +1,10 @@
 # libcrystals
 
 A C++17 static library that consolidates all cryptographic primitives used by the Crystals
-tool suite — hybrid post-quantum key encapsulation (Kyber, McEliece), post-quantum
-signatures (Dilithium, SLH-DSA), classical elliptic-curve operations (X25519,
-P-256/384/521, Ed25519, ECDSA), AEAD symmetric encryption, hybrid KDFs, and the tray
-key-bundle format — into a single linkable archive.
-
-Two tray profile groups are supported:
-
-| Group | Profiles | KEM-PQ | Sig-PQ |
-|---|---|---|---|
-| `crystals` (default) | `level0`–`level5` | Kyber 512/768/1024 | Dilithium 2/3/5 |
-| `mceliece+slhdsa` | `ms-level1`–`ms-level5` | McEliece (5 param sets) | SLH-DSA (4 variants) |
+tool suite — hybrid post-quantum key encapsulation (Kyber), post-quantum signatures
+(Dilithium), classical elliptic-curve operations (X25519, P-256/384/521, Ed25519, ECDSA),
+AEAD symmetric encryption, hybrid KDFs, and the tray key-bundle format — into a single
+linkable archive.
 
 ## Quick start
 
@@ -48,12 +41,11 @@ or the same prefix.
 |---|---|
 | Kyber 512/768/1024 (ref) | statically, via `add_subdirectory(../../kyber/ref)` |
 | Dilithium 2/3/5 (ref) | statically, via `add_subdirectory(../../dilithium/ref)` |
-| libmceliece (5 param sets) | statically — `/usr/local/lib/libmceliece.a` by full path |
 | XKCP (SHAKE256, KMAC256) | dynamically — `libXKCP.so` by full path |
 | scrypt (Colin Percival) | statically — `.a` archives from `../../scrypt/.libs/` |
 | BLAKE3 | dynamically — via `find_package(BLAKE3)` |
 | oneTBB | dynamically — via `find_package(TBB)` |
-| OpenSSL 3.5+ | via `find_package(OpenSSL)` — SLH-DSA requires the default provider in OpenSSL 3.x |
+| OpenSSL 3 | via `find_package(OpenSSL)` |
 | yaml-cpp | via `find_package(yaml-cpp)` |
 | msgpack-c | header-only, `../../msgpack-c/include` |
 
@@ -77,19 +69,12 @@ public key and (optionally) secret key.
 
 ```cpp
 enum class TrayType {
-    // crystals group
-    Level0,          // X25519 + Ed25519  (classical only)
-    Level1,          // Kyber512 + Dilithium2  (PQ only)
-    Level2_25519,    // X25519 + Kyber512 + Ed25519 + Dilithium2  (default)
-    Level2,          // P-256 + Kyber512 + ECDSA P-256 + Dilithium2
-    Level3,          // P-384 + Kyber768 + ECDSA P-384 + Dilithium3
-    Level5,          // P-521 + Kyber1024 + ECDSA P-521 + Dilithium5
-    // mceliece+slhdsa group
-    McEliece_Level1, // mceliece348864f + SLH-DSA-SHA2-128f
-    McEliece_Level2, // P-256 + mceliece460896f + ECDSA P-256 + SLH-DSA-SHA2-192f
-    McEliece_Level3, // P-384 + mceliece6688128f + ECDSA P-384 + SLH-DSA-SHAKE-192f
-    McEliece_Level4, // P-521 + mceliece6960119f + ECDSA P-521 + SLH-DSA-SHA2-256f
-    McEliece_Level5, // P-256 + mceliece8192128f + ECDSA P-256 + SLH-DSA-SHAKE-256f
+    Level0,       // X25519 + Ed25519  (classical only)
+    Level1,       // Kyber512 + Dilithium2  (PQ only)
+    Level2_25519, // X25519 + Kyber512 + Ed25519 + Dilithium2  (default)
+    Level2,       // P-256 + Kyber512 + ECDSA P-256 + Dilithium2
+    Level3,       // P-384 + Kyber768 + ECDSA P-384 + Dilithium3
+    Level5,       // P-521 + Kyber1024 + ECDSA P-521 + Dilithium5
 };
 
 struct Slot {
@@ -102,8 +87,8 @@ struct Tray {
     int         version      = 1;
     std::string alias;             // human name, e.g. "alice"
     TrayType    tray_type;
-    std::string profile_group;     // "crystals" or "mceliece+slhdsa"
-    std::string type_str;          // "level0"…"level5" or "ms-level1"…"ms-level5"
+    std::string profile_group;     // always "crystals"
+    std::string type_str;          // "level0" … "level5"
     std::string id;                // UUID v8 (derived from public keys via BLAKE3)
     bool        is_public    = false;
     std::vector<Slot> slots;
@@ -118,7 +103,7 @@ Tray make_tray(TrayType t, const std::string& alias);
 Tray make_public_tray(const Tray& src);
 ```
 
-**Slot order** by tray type (KEM-classical, KEM-PQ, Sig-classical, Sig-PQ):
+**Slot order** by tray type:
 
 | TrayType | slots[0] | slots[1] | slots[2] | slots[3] |
 |---|---|---|---|---|
@@ -128,11 +113,6 @@ Tray make_public_tray(const Tray& src);
 | Level2 | P-256 | Kyber512 | ECDSA P-256 | Dilithium2 |
 | Level3 | P-384 | Kyber768 | ECDSA P-384 | Dilithium3 |
 | Level5 | P-521 | Kyber1024 | ECDSA P-521 | Dilithium5 |
-| McEliece_Level1 | mceliece348864f | SLH-DSA-SHA2-128f | — | — |
-| McEliece_Level2 | P-256 | mceliece460896f | ECDSA P-256 | SLH-DSA-SHA2-192f |
-| McEliece_Level3 | P-384 | mceliece6688128f | ECDSA P-384 | SLH-DSA-SHAKE-192f |
-| McEliece_Level4 | P-521 | mceliece6960119f | ECDSA P-521 | SLH-DSA-SHA2-256f |
-| McEliece_Level5 | P-256 | mceliece8192128f | ECDSA P-256 | SLH-DSA-SHAKE-256f |
 
 ---
 
@@ -219,58 +199,6 @@ namespace dilithium {
 }
 ```
 
-#### McEliece (PQ KEM) — `crystals/mceliece_ops.hpp`
-
-```cpp
-#include <crystals/mceliece_ops.hpp>
-
-namespace mcs {
-    struct McElieceKeys {
-        std::vector<uint8_t> pk;
-        std::vector<uint8_t> sk;
-    };
-
-    // param_set: "mceliece348864f", "mceliece460896f", "mceliece6688128f",
-    //            "mceliece6960119f", "mceliece8192128f"
-    McElieceKeys keygen_mceliece(const std::string& param_set);
-}
-```
-
-> **Note:** McEliece keygen is significantly slower than Kyber — expect 1–5 seconds for
-> the smaller sets and up to ~30 seconds for `mceliece8192128f`. Public keys are also very
-> large (261 KB – 1.36 MB depending on the parameter set).
-
-> **Linker note:** `libmceliece.a` references `randombytes_internal_void_voidstar_longlong`,
-> which is provided by `src/mceliece_randombytes.c`. Due to static-archive link ordering,
-> this file must be compiled directly into each **executable** that links `crystals` (the
-> same pattern used for kyber's `randombytes.c`). The `CMakeLists.txt` already adds it to
-> `test_crystals`; do the same for any downstream binary:
-> ```cmake
-> target_sources(my_binary PRIVATE
->     path/to/pq/libcrystals/src/mceliece_randombytes.c)
-> ```
-> This issue does **not** affect the fat static archive produced by `install.sh` —
-> `libmceliece.a` is fully merged there, so `randombytes_internal_void_voidstar_longlong`
-> is available within the single archive.
-
-#### SLH-DSA (PQ signatures via OpenSSL 3) — `crystals/slhdsa_ops.hpp`
-
-```cpp
-#include <crystals/slhdsa_ops.hpp>
-
-namespace mcs {
-    struct SlhDsaKeys {
-        std::vector<uint8_t> pk;
-        std::vector<uint8_t> sk;
-    };
-
-    // alg_name: "SLH-DSA-SHA2-128f", "SLH-DSA-SHA2-192f", "SLH-DSA-SHAKE-192f",
-    //           "SLH-DSA-SHA2-256f", "SLH-DSA-SHAKE-256f"
-    // Requires OpenSSL 3.x default provider with SLH-DSA support (3.3+).
-    SlhDsaKeys keygen_slhdsa(const std::string& alg_name);
-}
-```
-
 ---
 
 ### Key size constants — `crystals/kyber_api.hpp`, `crystals/dilithium_api.hpp`
@@ -308,16 +236,6 @@ Reference values:
 | Dilithium2 | 1312 B | 2560 B | 2420 B |
 | Dilithium3 | 1952 B | 4032 B | 3309 B |
 | Dilithium5 | 2592 B | 4896 B | 4627 B |
-| mceliece348864f | 261 120 B | 6 452 B | 128 B |
-| mceliece460896f | 524 160 B | 13 568 B | 188 B |
-| mceliece6688128f | 1 044 992 B | 13 932 B | 240 B |
-| mceliece6960119f | 1 047 319 B | 13 948 B | 226 B |
-| mceliece8192128f | 1 357 824 B | 14 120 B | 240 B |
-| SLH-DSA-SHA2-128f | 32 B | 64 B | 17 088 B |
-| SLH-DSA-SHA2-192f | 48 B | 96 B | 35 664 B |
-| SLH-DSA-SHAKE-192f | 48 B | 96 B | 35 664 B |
-| SLH-DSA-SHA2-256f | 64 B | 128 B | 49 856 B |
-| SLH-DSA-SHAKE-256f | 64 B | 128 B | 49 856 B |
 | X25519 / Ed25519 | 32 B | 32 B | 32 B / 64 B |
 | P-256 | 65 B | 32 B | 64 B (ECDSA P1363) |
 | P-384 | 97 B | 48 B | 96 B |
@@ -757,13 +675,8 @@ cmake --build pq/libcrystals/build -j$(nproc)
 ./pq/libcrystals/build/test_crystals
 ```
 
-The test binary exercises all 14 functional areas: keygen for all 6 crystals tray types,
-YAML and msgpack round-trips, UUID tamper detection, Kyber KEM at all 3 levels, EC KEM at
-all 4 curves, Dilithium sign/verify at all 3 modes, EC sign/verify at all 4 algorithms,
-OBIWAN armor pack/unpack, AES-256-GCM and ChaCha20-Poly1305 (with and without AAD), PWENC
-wire format at all 3 Kyber levels, token wire format — followed by keygen for all 5
-mceliece+slhdsa tray types and YAML/msgpack round-trips for `ms-level1`.
-
-> **Test runtime:** the mceliece+slhdsa sections (1b and 2b) run last and take
-> significantly longer than the fast crystals sections — McEliece keygen ranges from
-> ~1 second (`mceliece348864f`) to ~30 seconds (`mceliece8192128f`) per call.
+The test binary exercises all 11 functional areas: keygen for all 6 tray types, YAML and
+msgpack round-trips, UUID tamper detection, Kyber KEM at all 3 levels, EC KEM at all 4
+curves, Dilithium sign/verify at all 3 modes, EC sign/verify at all 4 algorithms, OBIWAN
+armor pack/unpack, AES-256-GCM and ChaCha20-Poly1305 (with and without AAD), and PWENC
+wire format at all 3 Kyber levels.

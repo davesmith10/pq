@@ -105,9 +105,6 @@ do
     extract_archive "${_a}"
 done
 
-# McEliece static archive (system-installed)
-extract_archive "/usr/local/lib/libmceliece.a"
-
 # scrypt static archives (pre-built from source)
 for _a in \
     "${SCRYPT_DIR}/.libs/libscrypt_sse2.a" \

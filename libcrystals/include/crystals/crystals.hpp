@@ -13,8 +13,6 @@
 #include <crystals/ec_ops.hpp>
 #include <crystals/kyber_ops.hpp>
 #include <crystals/dilithium_ops.hpp>
-#include <crystals/mceliece_ops.hpp>
-#include <crystals/slhdsa_ops.hpp>
 
 // ── I/O (YAML + msgpack) ──────────────────────────────────────────────────────
 #include <crystals/yaml_io.hpp>

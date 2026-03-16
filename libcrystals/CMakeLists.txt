@@ -54,9 +54,6 @@ add_library(crystals STATIC
     src/ec_ops.cpp
     src/kyber_ops.cpp
     src/dilithium_ops.cpp
-    src/mceliece_ops.cpp
-    src/slhdsa_ops.cpp
-    src/mceliece_randombytes.c
     src/tray.cpp
     src/yaml_io.cpp
     src/tray_reader.cpp
@@ -79,7 +76,6 @@ target_include_directories(crystals
         "${MSGPACK_INC_ABS}"
     PRIVATE
         "${KYBER_REF_DIR_ABS}"
-        /usr/local/include
         "${SCRYPT_DIR_ABS}"
         "${SCRYPT_DIR_ABS}/lib-platform"
         "${SCRYPT_DIR_ABS}/lib/crypto"
@@ -106,7 +102,6 @@ target_link_libraries(crystals PUBLIC
     pqcrystals_dilithium5_ref
     pqcrystals_dilithium_fips202_ref
     "${XKCP_LIBDIR}/libXKCP.so"
-    /usr/local/lib/libmceliece.a
     "${SCRYPT_DIR_ABS}/.libs/libscrypt_sse2.a"
     "${SCRYPT_DIR_ABS}/.libs/libcperciva_cpusupport_detect.a"
     "${SCRYPT_DIR_ABS}/.libs/libcperciva_shani.a"
@@ -120,7 +115,6 @@ target_link_libraries(crystals PUBLIC
 add_executable(test_crystals
     test/test_crystals.cpp
     "${KYBER_REF_DIR_ABS}/randombytes.c"
-    src/mceliece_randombytes.c
 )
 target_link_libraries(test_crystals PRIVATE crystals)
 target_compile_options(test_crystals PRIVATE -O2 -Wall -Wextra)

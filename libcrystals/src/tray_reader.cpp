@@ -47,11 +47,6 @@ static Tray load_tray_yaml(const std::string& path) {
     else if (tray.type_str == "level2")       tray.tray_type = TrayType::Level2;
     else if (tray.type_str == "level3")       tray.tray_type = TrayType::Level3;
     else if (tray.type_str == "level5")       tray.tray_type = TrayType::Level5;
-    else if (tray.type_str == "ms-level1")    tray.tray_type = TrayType::McEliece_Level1;
-    else if (tray.type_str == "ms-level2")    tray.tray_type = TrayType::McEliece_Level2;
-    else if (tray.type_str == "ms-level3")    tray.tray_type = TrayType::McEliece_Level3;
-    else if (tray.type_str == "ms-level4")    tray.tray_type = TrayType::McEliece_Level4;
-    else if (tray.type_str == "ms-level5")    tray.tray_type = TrayType::McEliece_Level5;
     else throw std::runtime_error("YAML tray: unknown profile '" + tray.type_str + "'");
 
     YAML::Node tray_seq = doc["slots"];

@@ -2,8 +2,6 @@
 #include <crystals/ec_ops.hpp>
 #include <crystals/kyber_ops.hpp>
 #include <crystals/dilithium_ops.hpp>
-#include <crystals/mceliece_ops.hpp>
-#include <crystals/slhdsa_ops.hpp>
 #include "blake3.h"
 #include <cstdint>
 #include <cstdio>
@@ -105,24 +103,6 @@ static Slot make_dilithium_slot(const std::string& name, int mode) {
     return s;
 }
 
-static Slot make_mceliece_slot(const std::string& param_set) {
-    Slot s;
-    s.alg_name = param_set;
-    auto keys = mcs::keygen_mceliece(param_set);
-    s.pk = std::move(keys.pk);
-    s.sk = std::move(keys.sk);
-    return s;
-}
-
-static Slot make_slhdsa_slot(const std::string& alg_name) {
-    Slot s;
-    s.alg_name = alg_name;
-    auto keys = mcs::keygen_slhdsa(alg_name);
-    s.pk = std::move(keys.pk);
-    s.sk = std::move(keys.sk);
-    return s;
-}
-
 // ── make_tray ─────────────────────────────────────────────────────────────────
 
 Tray make_tray(TrayType t, const std::string& alias)
@@ -180,50 +160,6 @@ Tray make_tray(TrayType t, const std::string& alias)
             tray.slots.push_back(make_kyber_slot("Kyber1024",   1024));
             tray.slots.push_back(make_ec_slot("ECDSA P-521",    ec::Algorithm::P521));
             tray.slots.push_back(make_dilithium_slot("Dilithium5", 5));
-            break;
-
-        // ── mceliece+slhdsa group ─────────────────────────────────────────────
-        case TrayType::McEliece_Level1:
-            tray.profile_group = "mceliece+slhdsa";
-            tray.type_str = "ms-level1";
-            tray.slots.push_back(make_mceliece_slot("mceliece348864f"));
-            tray.slots.push_back(make_slhdsa_slot("SLH-DSA-SHA2-128f"));
-            break;
-
-        case TrayType::McEliece_Level2:
-            tray.profile_group = "mceliece+slhdsa";
-            tray.type_str = "ms-level2";
-            tray.slots.push_back(make_ec_slot("P-256",          ec::Algorithm::P256));
-            tray.slots.push_back(make_mceliece_slot("mceliece460896f"));
-            tray.slots.push_back(make_ec_slot("ECDSA P-256",    ec::Algorithm::P256));
-            tray.slots.push_back(make_slhdsa_slot("SLH-DSA-SHA2-192f"));
-            break;
-
-        case TrayType::McEliece_Level3:
-            tray.profile_group = "mceliece+slhdsa";
-            tray.type_str = "ms-level3";
-            tray.slots.push_back(make_ec_slot("P-384",          ec::Algorithm::P384));
-            tray.slots.push_back(make_mceliece_slot("mceliece6688128f"));
-            tray.slots.push_back(make_ec_slot("ECDSA P-384",    ec::Algorithm::P384));
-            tray.slots.push_back(make_slhdsa_slot("SLH-DSA-SHAKE-192f"));
-            break;
-
-        case TrayType::McEliece_Level4:
-            tray.profile_group = "mceliece+slhdsa";
-            tray.type_str = "ms-level4";
-            tray.slots.push_back(make_ec_slot("P-521",          ec::Algorithm::P521));
-            tray.slots.push_back(make_mceliece_slot("mceliece6960119f"));
-            tray.slots.push_back(make_ec_slot("ECDSA P-521",    ec::Algorithm::P521));
-            tray.slots.push_back(make_slhdsa_slot("SLH-DSA-SHA2-256f"));
-            break;
-
-        case TrayType::McEliece_Level5:
-            tray.profile_group = "mceliece+slhdsa";
-            tray.type_str = "ms-level5";
-            tray.slots.push_back(make_ec_slot("P-256",          ec::Algorithm::P256));
-            tray.slots.push_back(make_mceliece_slot("mceliece8192128f"));
-            tray.slots.push_back(make_ec_slot("ECDSA P-256",    ec::Algorithm::P256));
-            tray.slots.push_back(make_slhdsa_slot("SLH-DSA-SHAKE-256f"));
             break;
     }
 
