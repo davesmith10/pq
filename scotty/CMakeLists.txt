@@ -44,6 +44,9 @@ set(SOURCES
     src/ec_ops.cpp
     src/kyber_ops.cpp
     src/dilithium_ops.cpp
+    src/mceliece_ops.cpp
+    src/slhdsa_ops.cpp
+    src/mceliece_randombytes.c
     src/yaml_io.cpp
     src/base64.cpp
     "${MSGPACK_SRC}/tray_pack.cpp"
@@ -58,6 +61,7 @@ target_include_directories(scotty PRIVATE
     "${KYBER_REF_DIR_ABS}"       # for randombytes.h
     "${MSGPACK_SRC}"             # for tray_pack.hpp
     "${MSGPACK_INC}"             # msgpack-c header-only library
+    /usr/local/include           # for mceliece.h
 )
 
 target_compile_definitions(scotty PRIVATE MSGPACK_NO_BOOST)
@@ -71,6 +75,7 @@ target_link_libraries(scotty PRIVATE
     pqcrystals_dilithium3_ref
     pqcrystals_dilithium5_ref
     pqcrystals_dilithium_fips202_ref
+    /usr/local/lib/libmceliece.a
     BLAKE3::blake3
     TBB::tbb
     OpenSSL::Crypto

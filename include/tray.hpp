@@ -3,7 +3,12 @@
 #include <vector>
 #include <cstdint>
 
-enum class TrayType { Level0, Level1, Level2_25519, Level2, Level3, Level5 };
+enum class TrayType {
+    // crystals group (Kyber + Dilithium)
+    Level0, Level1, Level2_25519, Level2, Level3, Level5,
+    // mceliece+slhdsa group (McEliece + SLH-DSA)
+    McEliece_Level1, McEliece_Level2, McEliece_Level3, McEliece_Level4, McEliece_Level5
+};
 
 struct Slot {
     std::string alg_name;       // e.g. "X25519", "Kyber768", "ECDSA P-384", "Dilithium3"

@@ -12,22 +12,31 @@ static void print_usage(const char* prog) {
     std::cerr <<
         "Usage: " << prog << " keygen\n"
         "              --alias <name>\n"
-        "              [--tray <level0|level1|level2-25519|level2|level3|level5>]\n"
+        "              [--group crystals|mceliece+slhdsa]\n"
+        "              [--tray <profile>]\n"
         "              [--out <file>]\n"
         "              [--public]\n"
         "\n"
         "  --alias       Name for this tray (required)\n"
-        "  --tray        Tray profile (default: level2-25519)\n"
+        "  --group       Profile group (default: crystals)\n"
+        "  --tray        Tray profile within group (see below)\n"
         "  --out <file>  Write binary msgpack (.tray) to file; prints summary to stdout\n"
         "  --public      Also emit a companion public tray (no secret keys)\n"
         "\n"
-        "Tray profiles:\n"
+        "Crystals group profiles (--group crystals, default):\n"
         "  level0       X25519 + Ed25519                           (classical-only)\n"
         "  level1       Kyber512 + Dilithium2                      (PQ-only)\n"
         "  level2-25519 X25519 + Kyber512 + Ed25519 + Dilithium2  (default)\n"
         "  level2       P-256  + Kyber512 + ECDSA P-256 + Dilithium2\n"
         "  level3       P-384  + Kyber768 + ECDSA P-384 + Dilithium3\n"
         "  level5       P-521  + Kyber1024 + ECDSA P-521 + Dilithium5\n"
+        "\n"
+        "McEliece+SLH-DSA group profiles (--group mceliece+slhdsa):\n"
+        "  level1       mceliece348864f + SLH-DSA-SHA2-128f        (PQ-only, default)\n"
+        "  level2       P-256 + mceliece460896f + ECDSA P-256 + SLH-DSA-SHA2-192f\n"
+        "  level3       P-384 + mceliece6688128f + ECDSA P-384 + SLH-DSA-SHAKE-192f\n"
+        "  level4       P-521 + mceliece6960119f + ECDSA P-521 + SLH-DSA-SHA2-256f\n"
+        "  level5       P-256 + mceliece8192128f + ECDSA P-256 + SLH-DSA-SHAKE-256f\n"
         "\n"
         "Output (no --out): YAML to stdout. With --out: binary msgpack + summary to stdout.\n"
         "With --public: companion public tray (alias <name>.pub) also emitted.\n";
@@ -63,7 +72,8 @@ static std::string derive_pub_filename(const std::string& path) {
 
 static int cmd_keygen(int argc, char* argv[]) {
     std::string alias;
-    std::string tray_str = "level2-25519";
+    std::string group_str = "crystals";
+    std::string tray_str;   // empty = use group default
     std::string out_file;
     bool pub_flag = false;
 
@@ -71,6 +81,9 @@ static int cmd_keygen(int argc, char* argv[]) {
         if (std::strcmp(argv[i], "--alias") == 0) {
             if (++i >= argc) { std::cerr << "Error: --alias requires a value\n"; return 1; }
             alias = argv[i];
+        } else if (std::strcmp(argv[i], "--group") == 0) {
+            if (++i >= argc) { std::cerr << "Error: --group requires a value\n"; return 1; }
+            group_str = argv[i];
         } else if (std::strcmp(argv[i], "--tray") == 0) {
             if (++i >= argc) { std::cerr << "Error: --tray requires a value\n"; return 1; }
             tray_str = argv[i];
@@ -90,17 +103,44 @@ static int cmd_keygen(int argc, char* argv[]) {
         return 1;
     }
 
-    TrayType ttype;
-    if      (tray_str == "level0")       ttype = TrayType::Level0;
-    else if (tray_str == "level1")       ttype = TrayType::Level1;
-    else if (tray_str == "level2-25519") ttype = TrayType::Level2_25519;
-    else if (tray_str == "level2")       ttype = TrayType::Level2;
-    else if (tray_str == "level3")       ttype = TrayType::Level3;
-    else if (tray_str == "level5")       ttype = TrayType::Level5;
-    else {
-        std::cerr << "Error: unknown tray profile '" << tray_str
-                  << "' (must be level0, level1, level2-25519, level2, level3, or level5)\n";
+    if (group_str != "crystals" && group_str != "mceliece+slhdsa") {
+        std::cerr << "Error: unknown group '" << group_str
+                  << "' (must be crystals or mceliece+slhdsa)\n";
         return 1;
+    }
+
+    // Apply per-group default tray
+    if (tray_str.empty()) {
+        tray_str = (group_str == "mceliece+slhdsa") ? "level1" : "level2-25519";
+    }
+
+    TrayType ttype;
+    if (group_str == "crystals") {
+        if      (tray_str == "level0")       ttype = TrayType::Level0;
+        else if (tray_str == "level1")       ttype = TrayType::Level1;
+        else if (tray_str == "level2-25519") ttype = TrayType::Level2_25519;
+        else if (tray_str == "level2")       ttype = TrayType::Level2;
+        else if (tray_str == "level3")       ttype = TrayType::Level3;
+        else if (tray_str == "level5")       ttype = TrayType::Level5;
+        else {
+            std::cerr << "Error: unknown tray profile '" << tray_str
+                      << "' for group crystals"
+                         " (must be level0, level1, level2-25519, level2, level3, or level5)\n";
+            return 1;
+        }
+    } else {
+        // mceliece+slhdsa
+        if      (tray_str == "level1") ttype = TrayType::McEliece_Level1;
+        else if (tray_str == "level2") ttype = TrayType::McEliece_Level2;
+        else if (tray_str == "level3") ttype = TrayType::McEliece_Level3;
+        else if (tray_str == "level4") ttype = TrayType::McEliece_Level4;
+        else if (tray_str == "level5") ttype = TrayType::McEliece_Level5;
+        else {
+            std::cerr << "Error: unknown tray profile '" << tray_str
+                      << "' for group mceliece+slhdsa"
+                         " (must be level1, level2, level3, level4, or level5)\n";
+            return 1;
+        }
     }
 
     Tray tray;
