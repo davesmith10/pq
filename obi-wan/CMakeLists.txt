@@ -60,14 +60,17 @@ add_subdirectory(../../dilithium/ref dilithium_ref_build)
 set(SOURCES
     src/main.cpp
     src/kyber_kem.cpp
+    src/mceliece_kem.cpp
     src/ec_kem.cpp
     src/ec_sig.cpp
     src/dilithium_sig.cpp
+    src/slhdsa_sig.cpp
     src/tray_reader.cpp
     src/armor.cpp
     src/base64.cpp
     src/pw_crypt.cpp
     src/token_cmd.cpp
+    src/mceliece_randombytes.c
     "${MSGPACK_SRC}/tray_pack.cpp"
     ${RANDOMBYTES_SRC}
     ${SCRYPT_SOURCES}
@@ -79,6 +82,7 @@ target_include_directories(obi-wan PRIVATE
     src
     "${CMAKE_SOURCE_DIR}/../include"        # tray.hpp
     "${KYBER_REF_DIR_ABS}"                 # randombytes.h
+    /usr/local/include                      # mceliece.h
     "${XKCP_INC}"                          # SimpleFIPS202.h, SP800-185.h
     "${MSGPACK_SRC}"                       # tray_pack.hpp
     "${MSGPACK_INC}"                       # msgpack-c header-only
@@ -95,6 +99,7 @@ target_compile_definitions(obi-wan PRIVATE MSGPACK_NO_BOOST HAVE_CONFIG_H)
 
 # ── Link ──────────────────────────────────────────────────────────────────────
 target_link_libraries(obi-wan PRIVATE
+    /usr/local/lib/libmceliece.a
     pqcrystals_kyber512_ref
     pqcrystals_kyber768_ref
     pqcrystals_kyber1024_ref

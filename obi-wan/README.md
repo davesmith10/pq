@@ -3,7 +3,7 @@
 Hybrid post-quantum + classical file encryption, signing, and token generation.
 Operates on **trays** produced by [scotty](../scotty/), which bundle a classical key
 pair (X25519/P-curve ECDH + Ed25519/ECDSA) with a post-quantum pair (Kyber KEM +
-Dilithium signature) at the chosen security level.
+Dilithium signature, or McEliece KEM + SLH-DSA signature) at the chosen security level.
 
 ## Commands
 
@@ -20,9 +20,9 @@ obi-wan pwdecrypt [--pwfile <file>] <infile> <outfile>
 
 ### encrypt / decrypt
 
-Encrypts a file using both the classical KEM slot and the Kyber KEM slot from the tray.
-The two shared secrets are combined via a hybrid KDF; the result encrypts the payload
-with the chosen symmetric cipher.
+Encrypts a file using both the classical KEM slot and the PQ KEM slot (Kyber or McEliece)
+from the tray. The two shared secrets are combined via a hybrid KDF; the result encrypts
+the payload with the chosen symmetric cipher.
 
 Output is written to stdout as a PEM-armored `OBIWAN ENCRYPTED FILE`.
 
@@ -37,14 +37,14 @@ Tray files are accepted in either YAML or binary msgpack format (auto-detected).
 ### sign / verify
 
 Encrypts and signs a file using all four slots in the tray: both KEM slots protect the
-symmetric key (same as `encrypt`), and both signature slots (Ed25519/ECDSA + Dilithium)
-sign the header and encrypted payload.
+symmetric key (same as `encrypt`), and both signature slots (Ed25519/ECDSA + Dilithium
+or SLH-DSA) sign the header and encrypted payload.
 
 Output is written to stdout as a PEM-armored `HYKE SIGNED FILE`.
 
 `verify` checks both signatures before decrypting. Any tampering causes exit code 2.
 
-Requires a tray at level2-25519, level2, level3, or level5 (all four slots must be present).
+Requires a tray with all four slots present (hybrid levels only — not level1/ms-level1).
 
 ### gentok / valtok
 
@@ -85,6 +85,8 @@ Output is a PEM-armored `OBIWAN PW ENCRYPTED FILE`.
 
 Trays are created by [scotty](../scotty/) and passed via `--tray`.
 
+### crystals group (default)
+
 | Profile       | Classical KEM | PQ KEM     | Classical Sig | PQ Sig      |
 |---------------|---------------|------------|---------------|-------------|
 | level0        | X25519        | —          | Ed25519       | —           |
@@ -94,8 +96,19 @@ Trays are created by [scotty](../scotty/) and passed via `--tray`.
 | level3        | P-384         | Kyber768   | ECDSA P-384   | Dilithium3  |
 | level5        | P-521         | Kyber1024  | ECDSA P-521   | Dilithium5  |
 
-`encrypt`/`decrypt` work with level0 through level5 (uses whichever KEM slots are present).
-`sign`/`verify` and `gentok`/`valtok` require all four slots (level2-25519 through level5).
+### mceliece+slhdsa group (`--group mceliece+slhdsa`)
+
+| Profile    | Classical KEM | PQ KEM              | Classical Sig | PQ Sig               |
+|------------|---------------|---------------------|---------------|----------------------|
+| ms-level1  | —             | mceliece348864f     | —             | SLH-DSA-SHA2-128f    |
+| ms-level2  | P-256         | mceliece460896f     | ECDSA P-256   | SLH-DSA-SHA2-192f    |
+| ms-level3  | P-384         | mceliece6688128f    | ECDSA P-384   | SLH-DSA-SHAKE-192f   |
+| ms-level4  | P-521         | mceliece6960119f    | ECDSA P-521   | SLH-DSA-SHA2-256f    |
+| ms-level5  | P-256         | mceliece8192128f    | ECDSA P-256   | SLH-DSA-SHAKE-256f   |
+
+`encrypt`/`decrypt` require at least one classical and one PQ KEM slot (hybrid levels).
+`sign`/`verify` require all four slots (hybrid levels only — ms-level1 and crystals level1 are rejected).
+`gentok`/`valtok` are crystals-only (level2 or higher).
 
 ## Wire Formats
 
@@ -123,7 +136,10 @@ Wrapped in `-----BEGIN/END OBIWAN ENCRYPTED FILE-----` PEM armor (base64, 64-cha
 
 Signatures cover a 64-byte context binding (KMAC-256 over both public keys) concatenated
 with the partial header and encrypted payload. Classical signatures use P1363 format
-(raw r‖s); Dilithium signatures are raw bytes from the reference implementation.
+(raw r‖s). Dilithium signatures are raw bytes from the reference implementation;
+SLH-DSA signatures are raw bytes via OpenSSL 3.5 (`EVP_DigestSign`). All field lengths
+are stored as 32-bit big-endian values, so the wire format accommodates McEliece
+ciphertexts (96–208 B) and SLH-DSA signatures (17–50 KB) without change.
 
 Wrapped in `-----BEGIN/END HYKE SIGNED FILE-----` PEM armor.
 
@@ -163,6 +179,8 @@ cmake --build pq/obi-wan/build -j$(nproc)
 
 Dependencies resolved via `CMAKE_PREFIX_PATH`: BLAKE3, oneTBB, OpenSSL, yaml-cpp.
 Kyber and Dilithium are compiled from source via `add_subdirectory`.
+McEliece is linked from `/usr/local/lib/libmceliece.a` (headers at `/usr/local/include/mceliece.h`).
+SLH-DSA is provided by the OpenSSL 3.5 default provider — no extra library needed.
 XKCP (`libXKCP.so`) is a pre-built dynamic library linked by full path.
 
 ## Examples
@@ -181,6 +199,13 @@ obi-wan encrypt --tray alice.tray --kdf KMAC --cipher ChaCha20 plaintext.txt > m
 # Sign / verify
 obi-wan sign   --tray alice.tray document.pdf > document.hyke
 obi-wan verify --tray alice.tray document.hyke > document_out.pdf
+
+# mceliece+slhdsa tray
+scotty keygen --group mceliece+slhdsa --tray level2 --alias bob --out bob.tray
+obi-wan encrypt --tray bob.tray plaintext.txt > message.armored
+obi-wan decrypt --tray bob.tray message.armored > recovered.txt
+obi-wan sign    --tray bob.tray document.pdf > document.hyke
+obi-wan verify  --tray bob.tray document.hyke > document_out.pdf
 
 # Password encryption (no tray needed)
 obi-wan pwencrypt secret.txt secret.pwenc          # prompts for password
