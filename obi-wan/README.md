@@ -187,7 +187,7 @@ XKCP (`libXKCP.so`) is a pre-built dynamic library linked by full path.
 
 ```bash
 # Generate a tray
-scotty keygen --alias alice --tray level2-25519 > alice.tray
+scotty keygen --alias alice --profile level2-25519 > alice.tray
 
 # Encrypt / decrypt
 obi-wan encrypt --tray alice.tray plaintext.txt > message.armored
@@ -201,7 +201,7 @@ obi-wan sign   --tray alice.tray document.pdf > document.hyke
 obi-wan verify --tray alice.tray document.hyke > document_out.pdf
 
 # mceliece+slhdsa tray
-scotty keygen --group mceliece+slhdsa --tray level2 --alias bob --out bob.tray
+scotty keygen --group mceliece+slhdsa --profile level2 --alias bob --out bob.tray
 obi-wan encrypt --tray bob.tray plaintext.txt > message.armored
 obi-wan decrypt --tray bob.tray message.armored > recovered.txt
 obi-wan sign    --tray bob.tray document.pdf > document.hyke

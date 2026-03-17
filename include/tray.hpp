@@ -21,7 +21,7 @@ struct Tray {
     std::string alias;
     TrayType tray_type;
     std::string profile_group;  // always "crystals"
-    std::string type_str;       // "level0", "level1", "level2-25519", "level2", "level3", "level5"
+    std::string type_str;       // "tray" or "secure-tray"
     std::string id;             // UUID v8
     bool is_public = false;
     std::vector<Slot> slots;

@@ -60,30 +60,30 @@ cmake --build pq/msgpack/build -j$(nproc)
 
 ```bash
 # obi-wan: encrypt → decrypt (YAML tray, defaults)
-./pq/scotty/build/scotty keygen --alias alice --tray level2-25519 > /tmp/alice.tray
+./pq/scotty/build/scotty keygen --alias alice --profile level2-25519 > /tmp/alice.tray
 echo "hello" > /tmp/plain.txt
 ./pq/obi-wan/build/obi-wan encrypt --tray /tmp/alice.tray /tmp/plain.txt > /tmp/out.armored
 ./pq/obi-wan/build/obi-wan decrypt --tray /tmp/alice.tray /tmp/out.armored | diff /tmp/plain.txt -
 
 # obi-wan: KMAC + ChaCha20, msgpack tray
-./pq/scotty/build/scotty keygen --alias bob --tray level3 --out /tmp/bob.tray
+./pq/scotty/build/scotty keygen --alias bob --profile level3 --out /tmp/bob.tray
 ./pq/obi-wan/build/obi-wan encrypt --tray /tmp/bob.tray --kdf KMAC --cipher ChaCha20 /tmp/plain.txt > /tmp/out2.armored
 ./pq/obi-wan/build/obi-wan decrypt --tray /tmp/bob.tray /tmp/out2.armored | diff /tmp/plain.txt -
 
 # obi-wan: sign → verify (HYKE, all 4 tray types)
-./pq/scotty/build/scotty keygen --alias alice --tray level2-25519 > /tmp/alice.tray
+./pq/scotty/build/scotty keygen --alias alice --profile level2-25519 > /tmp/alice.tray
 ./pq/obi-wan/build/obi-wan sign   --tray /tmp/alice.tray /tmp/plain.txt > /tmp/alice.hyke
 ./pq/obi-wan/build/obi-wan verify --tray /tmp/alice.tray /tmp/alice.hyke | diff /tmp/plain.txt -
 
 # scotty: hybrid tray keygen
-./scotty keygen --tray level3 --alias alice                          # YAML to stdout (default)
-./scotty keygen --alias bob                                          # default profile: level2-25519
-./scotty keygen --tray level0 --alias alice                          # classical-only (2 slots)
-./scotty keygen --tray level1 --alias alice                          # PQ-only (2 slots)
-./scotty keygen --alias alice --out alice.tray                       # binary msgpack to file + auto-summary
-./scotty keygen --tray level3 --alias bob --out bob.tray
-./scotty keygen --alias carol --tray level2-25519 --public           # YAML + companion public YAML
-./scotty keygen --alias carol --tray level3 --public --out carol.tray  # carol.tray + carol.pub.tray
+./scotty keygen --profile level3 --alias alice                          # YAML to stdout (default)
+./scotty keygen --alias bob                                             # default profile: level2-25519
+./scotty keygen --profile level0 --alias alice                          # classical-only (2 slots)
+./scotty keygen --profile level1 --alias alice                          # PQ-only (2 slots)
+./scotty keygen --alias alice --out alice.tray                          # binary msgpack to file + auto-summary
+./scotty keygen --profile level3 --alias bob --out bob.tray
+./scotty keygen --alias carol --profile level2-25519 --public           # YAML + companion public YAML
+./scotty keygen --alias carol --profile level3 --public --out carol.tray  # carol.tray + carol.pub.tray
 
 # msgpack: round-trip tests
 ./pq/msgpack/build/test_roundtrip

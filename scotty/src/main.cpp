@@ -2,6 +2,7 @@
 #include "yaml_io.hpp"
 #include "tray_pack.hpp"
 #include <iostream>
+#include <fstream>
 #include <string>
 #include <cstring>
 #include <cstdlib>
@@ -13,14 +14,14 @@ static void print_usage(const char* prog) {
         "Usage: " << prog << " keygen\n"
         "              --alias <name>\n"
         "              [--group crystals|mceliece+slhdsa]\n"
-        "              [--tray <profile>]\n"
+        "              [--profile <level>]\n"
         "              [--out <file>]\n"
         "              [--public]\n"
         "\n"
         "  --alias       Name for this tray (required)\n"
         "  --group       Profile group (default: crystals)\n"
-        "  --tray        Tray profile within group (see below)\n"
-        "  --out <file>  Write binary msgpack (.tray) to file; prints summary to stdout\n"
+        "  --profile     Tray profile within group (see below)\n"
+        "  --out <file>  Write to file; .yml/.yaml → YAML, otherwise binary msgpack + summary\n"
         "  --public      Also emit a companion public tray (no secret keys)\n"
         "\n"
         "Crystals group profiles (--group crystals, default):\n"
@@ -38,7 +39,7 @@ static void print_usage(const char* prog) {
         "  level4       P-521 + mceliece6960119f + ECDSA P-521 + SLH-DSA-SHA2-256f\n"
         "  level5       P-256 + mceliece8192128f + ECDSA P-256 + SLH-DSA-SHAKE-256f\n"
         "\n"
-        "Output (no --out): YAML to stdout. With --out: binary msgpack + summary to stdout.\n"
+        "Output (no --out or .yml/.yaml): YAML. With --out and non-YAML ext: binary msgpack + summary.\n"
         "With --public: companion public tray (alias <name>.pub) also emitted.\n";
 }
 
@@ -68,6 +69,25 @@ static std::string derive_pub_filename(const std::string& path) {
     return path.substr(0, dot) + ".pub" + path.substr(dot);
 }
 
+static bool is_yaml_filename(const std::string& path) {
+    if (path.size() >= 4 && path.substr(path.size() - 4) == ".yml")  return true;
+    if (path.size() >= 5 && path.substr(path.size() - 5) == ".yaml") return true;
+    return false;
+}
+
+static int write_yaml_file(const Tray& tray, const std::string& path) {
+    std::string yaml;
+    try { yaml = emit_tray_yaml(tray); }
+    catch (const std::exception& e) {
+        std::cerr << "Error: YAML output failed: " << e.what() << "\n";
+        return 3;
+    }
+    std::ofstream f(path);
+    if (!f) { std::cerr << "Error: cannot open " << path << " for writing\n"; return 3; }
+    f << yaml;
+    return 0;
+}
+
 // ── keygen command ────────────────────────────────────────────────────────────
 
 static int cmd_keygen(int argc, char* argv[]) {
@@ -84,8 +104,8 @@ static int cmd_keygen(int argc, char* argv[]) {
         } else if (std::strcmp(argv[i], "--group") == 0) {
             if (++i >= argc) { std::cerr << "Error: --group requires a value\n"; return 1; }
             group_str = argv[i];
-        } else if (std::strcmp(argv[i], "--tray") == 0) {
-            if (++i >= argc) { std::cerr << "Error: --tray requires a value\n"; return 1; }
+        } else if (std::strcmp(argv[i], "--profile") == 0) {
+            if (++i >= argc) { std::cerr << "Error: --profile requires a value\n"; return 1; }
             tray_str = argv[i];
         } else if (std::strcmp(argv[i], "--out") == 0) {
             if (++i >= argc) { std::cerr << "Error: --out requires a filename\n"; return 1; }
@@ -123,7 +143,7 @@ static int cmd_keygen(int argc, char* argv[]) {
         else if (tray_str == "level3")       ttype = TrayType::Level3;
         else if (tray_str == "level5")       ttype = TrayType::Level5;
         else {
-            std::cerr << "Error: unknown tray profile '" << tray_str
+            std::cerr << "Error: unknown profile '" << tray_str
                       << "' for group crystals"
                          " (must be level0, level1, level2-25519, level2, level3, or level5)\n";
             return 1;
@@ -136,7 +156,7 @@ static int cmd_keygen(int argc, char* argv[]) {
         else if (tray_str == "level4") ttype = TrayType::McEliece_Level4;
         else if (tray_str == "level5") ttype = TrayType::McEliece_Level5;
         else {
-            std::cerr << "Error: unknown tray profile '" << tray_str
+            std::cerr << "Error: unknown profile '" << tray_str
                       << "' for group mceliece+slhdsa"
                          " (must be level1, level2, level3, level4, or level5)\n";
             return 1;
@@ -161,7 +181,14 @@ static int cmd_keygen(int argc, char* argv[]) {
         }
     }
 
-    if (!out_file.empty()) {
+    if (!out_file.empty() && is_yaml_filename(out_file)) {
+        // YAML file output
+        if (int rc = write_yaml_file(tray, out_file)) return rc;
+        if (pub_flag) {
+            if (int rc = write_yaml_file(pub_tray, derive_pub_filename(out_file))) return rc;
+        }
+    } else if (!out_file.empty()) {
+        // Binary msgpack output
         try {
             tray_mp::pack_to_file(tray, out_file);
         } catch (const std::exception& e) {
@@ -180,6 +207,7 @@ static int cmd_keygen(int argc, char* argv[]) {
         print_summary(tray);
         if (pub_flag) print_summary(pub_tray);
     } else {
+        // No --out: YAML to stdout (default)
         try {
             std::cout << emit_tray_yaml(tray);
         } catch (const std::exception& e) {

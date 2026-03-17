@@ -15,7 +15,7 @@ Generates named **hybrid trays** — bundles of paired PQ+classical key slots
 covering both KEM and signature roles.
 
 ```
-scotty keygen [--tray level0|level1|level2-25519|level2|level3|level5]
+scotty keygen [--profile level0|level1|level2-25519|level2|level3|level5]
               --alias <name>
               [--out <file>]
               [--public]
