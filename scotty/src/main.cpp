@@ -40,8 +40,8 @@ static void print_usage(const char* prog) {
         "  level5       P-521  + Kyber1024 + ECDSA P-521 + Dilithium5\n"
         "\n"
         "McEliece+SLH-DSA group profiles (--group mceliece+slhdsa):\n"
-        "  level1       mceliece348864f + SLH-DSA-SHA2-128f        (PQ-only, default)\n"
-        "  level2       P-256 + mceliece460896f + ECDSA P-256 + SLH-DSA-SHA2-192f\n"
+        "  level1       mceliece348864f + SLH-DSA-SHA2-128f        (PQ-only)\n"
+        "  level2       P-256 + mceliece460896f + ECDSA P-256 + SLH-DSA-SHA2-192f  (default)\n"
         "  level3       P-384 + mceliece6688128f + ECDSA P-384 + SLH-DSA-SHAKE-192f\n"
         "  level4       P-521 + mceliece6960119f + ECDSA P-521 + SLH-DSA-SHA2-256f\n"
         "  level5       P-256 + mceliece8192128f + ECDSA P-256 + SLH-DSA-SHAKE-256f\n"
@@ -132,7 +132,7 @@ static int cmd_keygen(int argc, char* argv[]) {
 
     // Apply per-group default tray
     if (tray_str.empty()) {
-        tray_str = (group_str == "mceliece+slhdsa") ? "level1" : "level2-25519";
+        tray_str = (group_str == "mceliece+slhdsa") ? "level2" : "level2-25519";
     }
 
     TrayType ttype;
