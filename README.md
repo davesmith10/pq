@@ -34,7 +34,7 @@ Default profile: `level2-25519`.
 
 **Output modes:**
 - Default (no flags): YAML with literal block scalar base64 to stdout
-- `--out <file>`: write compact binary MessagePack to `<file>` (~67% of YAML size); auto-prints a human-readable summary to stdout
+- `--out <file>`: write YAML to `<file>`; auto-prints a human-readable summary to stdout
 - `--public`: also emit a companion public tray (alias `<name>.pub`, fresh UUID, no secret keys). With `--out`, written to `<name>.pub.<ext>`; without `--out`, both YAML documents go to stdout
 
 ### obi-wan — Hybrid KEM Encryption and Signing

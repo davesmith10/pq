@@ -65,7 +65,7 @@ echo "hello" > /tmp/plain.txt
 ./pq/obi-wan/build/obi-wan encrypt --tray /tmp/alice.tray /tmp/plain.txt > /tmp/out.armored
 ./pq/obi-wan/build/obi-wan decrypt --tray /tmp/alice.tray /tmp/out.armored | diff /tmp/plain.txt -
 
-# obi-wan: KMAC + ChaCha20, msgpack tray
+# obi-wan: KMAC + ChaCha20, YAML tray written to file
 ./pq/scotty/build/scotty keygen --alias bob --profile level3 --out /tmp/bob.tray
 ./pq/obi-wan/build/obi-wan encrypt --tray /tmp/bob.tray --kdf KMAC --cipher ChaCha20 /tmp/plain.txt > /tmp/out2.armored
 ./pq/obi-wan/build/obi-wan decrypt --tray /tmp/bob.tray /tmp/out2.armored | diff /tmp/plain.txt -
@@ -80,7 +80,7 @@ echo "hello" > /tmp/plain.txt
 ./scotty keygen --alias bob                                             # default profile: level2-25519
 ./scotty keygen --profile level0 --alias alice                          # classical-only (2 slots)
 ./scotty keygen --profile level1 --alias alice                          # PQ-only (2 slots)
-./scotty keygen --alias alice --out alice.tray                          # binary msgpack to file + auto-summary
+./scotty keygen --alias alice --out alice.tray                          # YAML to file + auto-summary to stdout
 ./scotty keygen --profile level3 --alias bob --out bob.tray
 ./scotty keygen --alias carol --profile level2-25519 --public           # YAML + companion public YAML
 ./scotty keygen --alias carol --profile level3 --public --out carol.tray  # carol.tray + carol.pub.tray
@@ -153,7 +153,7 @@ scotty generates **hybrid trays** — named bundles of paired PQ+classical key s
 - `base64.{hpp,cpp}` — Base64 encode/decode
 - `pq/msgpack/src/tray_pack.{hpp,cpp}` — compiled directly into scotty for `--out` binary output
 
-**Output modes**: default = YAML stdout; `--out <file>` = binary msgpack + auto-summary to stdout; `--public` = also emit companion public tray (no sk fields, fresh UUID, alias `<name>.pub`).
+**Output modes**: default = YAML stdout; `--out <file>` = YAML to file + auto-summary to stdout; `--public` = also emit companion public tray (no sk fields, fresh UUID, alias `<name>.pub`).
 
 **scotty fips202 linking strategy**: Both kyber and dilithium need their own `fips202` symbol
 namespace (`pqcrystals_kyber_fips202_ref_*` vs `pqcrystals_dilithium_fips202_ref_*`). This is
@@ -163,9 +163,8 @@ handled cleanly by the static CMake builds: `kyber/ref/CMakeLists.txt` compiles
 names. No OBJECT libraries or `-rdynamic` required.
 
 ### msgpack Architecture
-`pq/msgpack/src/tray_pack.{hpp,cpp}` is shared between scotty and the standalone library.
-scotty compiles `tray_pack.cpp` directly (see scotty CMakeLists.txt). The `pq/msgpack/`
-CMake project builds a standalone `libtraymsgpack.a` and tests for other consumers.
+`pq/msgpack/src/tray_pack.{hpp,cpp}` is used by obi-wan (compiled in) and the standalone library.
+The `pq/msgpack/` CMake project builds a standalone `libtraymsgpack.a` and tests for other consumers.
 
 - `pq/include/tray.hpp` — shared domain model included by both scotty and msgpack
 - `msgpack/src/tray_pack.hpp` — public API: `tray_mp::pack`, `unpack`, `pack_to_file`, `unpack_from_file`
@@ -215,7 +214,6 @@ from `kyber/ref/randombytes.c`.
 ## CMakeLists.txt Paths
 - scotty: `cmake -S pq/scotty -B pq/scotty/build -DCMAKE_PREFIX_PATH=<Crystals>/local`
   - `add_subdirectory(../../kyber/ref)` + `add_subdirectory(../../dilithium/ref)` for 8 static targets
-  - includes `../msgpack/src` and `../../msgpack-c/include` for the tray_pack module
   - `find_package(BLAKE3)` / `find_package(TBB)` resolved via `CMAKE_PREFIX_PATH`
 - obi-wan: `cmake -S pq/obi-wan -B pq/obi-wan/build -DCMAKE_PREFIX_PATH=<Crystals>/local`
   - same `add_subdirectory` static targets as scotty

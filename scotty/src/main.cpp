@@ -1,6 +1,5 @@
 #include "tray.hpp"
 #include "yaml_io.hpp"
-#include "tray_pack.hpp"
 #include <iostream>
 #include <fstream>
 #include <string>
@@ -21,7 +20,7 @@ static void print_usage(const char* prog) {
         "  --alias       Name for this tray (required)\n"
         "  --group       Profile group (default: crystals)\n"
         "  --profile     Tray profile within group (see below)\n"
-        "  --out <file>  Write to file; .yml/.yaml → YAML, otherwise binary msgpack + summary\n"
+        "  --out <file>  Write YAML to file; auto-prints a human-readable summary to stdout\n"
         "  --public      Also emit a companion public tray (no secret keys)\n"
         "\n"
         "Crystals group profiles (--group crystals, default):\n"
@@ -39,7 +38,7 @@ static void print_usage(const char* prog) {
         "  level4       P-521 + mceliece6960119f + ECDSA P-521 + SLH-DSA-SHA2-256f\n"
         "  level5       P-256 + mceliece8192128f + ECDSA P-256 + SLH-DSA-SHAKE-256f\n"
         "\n"
-        "Output (no --out or .yml/.yaml): YAML. With --out and non-YAML ext: binary msgpack + summary.\n"
+        "Output (no --out): YAML to stdout. With --out: YAML to file + summary to stdout.\n"
         "With --public: companion public tray (alias <name>.pub) also emitted.\n";
 }
 
@@ -67,12 +66,6 @@ static std::string derive_pub_filename(const std::string& path) {
     if (dot == std::string::npos)
         return path + ".pub";
     return path.substr(0, dot) + ".pub" + path.substr(dot);
-}
-
-static bool is_yaml_filename(const std::string& path) {
-    if (path.size() >= 4 && path.substr(path.size() - 4) == ".yml")  return true;
-    if (path.size() >= 5 && path.substr(path.size() - 5) == ".yaml") return true;
-    return false;
 }
 
 static int write_yaml_file(const Tray& tray, const std::string& path) {
@@ -181,29 +174,12 @@ static int cmd_keygen(int argc, char* argv[]) {
         }
     }
 
-    if (!out_file.empty() && is_yaml_filename(out_file)) {
-        // YAML file output
+    if (!out_file.empty()) {
+        // YAML file output + auto-summary to stdout
         if (int rc = write_yaml_file(tray, out_file)) return rc;
         if (pub_flag) {
             if (int rc = write_yaml_file(pub_tray, derive_pub_filename(out_file))) return rc;
         }
-    } else if (!out_file.empty()) {
-        // Binary msgpack output
-        try {
-            tray_mp::pack_to_file(tray, out_file);
-        } catch (const std::exception& e) {
-            std::cerr << "Error: msgpack write failed: " << e.what() << "\n";
-            return 3;
-        }
-        if (pub_flag) {
-            try {
-                tray_mp::pack_to_file(pub_tray, derive_pub_filename(out_file));
-            } catch (const std::exception& e) {
-                std::cerr << "Error: public tray write failed: " << e.what() << "\n";
-                return 3;
-            }
-        }
-        // auto-summary to stdout
         print_summary(tray);
         if (pub_flag) print_summary(pub_tray);
     } else {

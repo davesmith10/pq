@@ -23,10 +23,6 @@ set(CMAKE_BUILD_RPATH "${_tbb_libdir}")
 set(KYBER_REF_DIR     "${CMAKE_SOURCE_DIR}/../../kyber/ref")
 set(DILITHIUM_REF_DIR "${CMAKE_SOURCE_DIR}/../../dilithium/ref")
 
-# msgpack-c (header-only) and the shared tray_pack module
-set(MSGPACK_SRC "${CMAKE_SOURCE_DIR}/../msgpack/src")
-set(MSGPACK_INC "${CMAKE_SOURCE_DIR}/../../msgpack-c/include")
-
 get_filename_component(KYBER_REF_DIR_ABS "${KYBER_REF_DIR}" ABSOLUTE)
 
 # ── randombytes ────────────────────────────────────────────────────────────────
@@ -49,7 +45,6 @@ set(SOURCES
     src/mceliece_randombytes.c
     src/yaml_io.cpp
     src/base64.cpp
-    "${MSGPACK_SRC}/tray_pack.cpp"
     ${RANDOMBYTES_SRC}
 )
 
@@ -59,12 +54,8 @@ target_include_directories(scotty PRIVATE
     src
     "${CMAKE_SOURCE_DIR}/../include"
     "${KYBER_REF_DIR_ABS}"       # for randombytes.h
-    "${MSGPACK_SRC}"             # for tray_pack.hpp
-    "${MSGPACK_INC}"             # msgpack-c header-only library
     /usr/local/include           # for mceliece.h
 )
-
-target_compile_definitions(scotty PRIVATE MSGPACK_NO_BOOST)
 
 target_link_libraries(scotty PRIVATE
     pqcrystals_kyber512_ref
