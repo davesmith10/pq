@@ -34,3 +34,6 @@ Tray make_tray(TrayType t, const std::string& alias);
 
 // Copy src, clear all sk fields, assign a fresh UUID, append ".pub" to alias.
 Tray make_public_tray(const Tray& src);
+
+// Returns true if tray.id matches the UUID derived from its public keys.
+bool validate_tray_uuid(const Tray& tray);

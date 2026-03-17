@@ -17,7 +17,7 @@
 // then length-prefixed pk (uint32_t LE lengths).  Output: 16-byte digest with
 // version nibble set to 8 and variant bits set to 10xxxxxx (RFC 9562).
 
-static std::string derive_uuid(const std::vector<Slot>& slots) {
+std::string derive_uuid(const std::vector<Slot>& slots) {
     blake3_hasher h;
     blake3_hasher_init_derive_key(&h, "Crystals scotty tray-uuid v1");
 
@@ -61,6 +61,10 @@ static std::string derive_uuid(const std::vector<Slot>& slots) {
         out[8], out[9],
         out[10], out[11], out[12], out[13], out[14], out[15]);
     return std::string(buf);
+}
+
+bool validate_tray_uuid(const Tray& tray) {
+    return derive_uuid(tray.slots) == tray.id;
 }
 
 // ── Timestamps ────────────────────────────────────────────────────────────────

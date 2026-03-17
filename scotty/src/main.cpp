@@ -1,5 +1,6 @@
 #include "tray.hpp"
 #include "yaml_io.hpp"
+#include "secure_tray.hpp"
 #include <iostream>
 #include <fstream>
 #include <string>
@@ -17,11 +18,18 @@ static void print_usage(const char* prog) {
         "              [--out <file>]\n"
         "              [--public]\n"
         "\n"
-        "  --alias       Name for this tray (required)\n"
+        "       " << prog << " protect   --in <file> --out <file> [--password-file <file>]\n"
+        "       " << prog << " unprotect --in <file> --out <file> [--password-file <file>]\n"
+        "\n"
+        "  --alias       Name for this tray (required for keygen)\n"
         "  --group       Profile group (default: crystals)\n"
         "  --profile     Tray profile within group (see below)\n"
         "  --out <file>  Write YAML to file; auto-prints a human-readable summary to stdout\n"
         "  --public      Also emit a companion public tray (no secret keys)\n"
+        "\n"
+        "  protect:    Encrypt secret keys in a tray with a password → secure-tray YAML\n"
+        "  unprotect:  Decrypt secret keys from a secure-tray back to a plain tray\n"
+        "  --password-file: read password from first line of file (default: TTY prompt)\n"
         "\n"
         "Crystals group profiles (--group crystals, default):\n"
         "  level0       X25519 + Ed25519                           (classical-only)\n"
@@ -215,6 +223,14 @@ int main(int argc, char* argv[]) {
 
     if (cmd == "keygen") {
         return cmd_keygen(argc - 1, argv + 1);
+    }
+
+    if (cmd == "protect") {
+        return cmd_protect(argc - 1, argv + 1);
+    }
+
+    if (cmd == "unprotect") {
+        return cmd_unprotect(argc - 1, argv + 1);
     }
 
     if (cmd == "--help" || cmd == "-h") {

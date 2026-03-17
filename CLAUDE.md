@@ -53,7 +53,6 @@ cmake -S pq/msgpack -B pq/msgpack/build
 cmake --build pq/msgpack/build -j$(nproc)
 # Library: pq/msgpack/build/libtraymsgpack.a
 # Tests:   pq/msgpack/build/test_roundtrip
-#          pq/msgpack/build/test_from_yaml
 ```
 
 ## Testing
@@ -143,17 +142,25 @@ KEM PQ: prefix `"Kyber"`; Sig classical: `{Ed25519,ECDSA P-256,ECDSA P-384,ECDSA
 Sig PQ: `{Dilithium2,Dilithium3,Dilithium5}`.
 
 ### scotty Architecture
-scotty generates **hybrid trays** — named bundles of paired PQ+classical key slots.
+scotty generates **hybrid trays** — named bundles of paired PQ+classical key slots, and can
+password-protect/unprotect the secret keys in place.
 - `pq/include/tray.hpp` — shared `Tray`/`Slot` structs and `TrayType` enum (domain model, not scotty-internal)
-- `scotty/src/tray.cpp` — `make_tray()` implementation, UUID + ISO 8601 timestamps
+- `scotty/src/tray.cpp` — `make_tray()`, `make_public_tray()`, `validate_tray_uuid()`, UUID + ISO 8601 timestamps
 - `ec_ops.{hpp,cpp}` — OpenSSL EVP keygen for X25519, Ed25519, P-256, P-384, P-521
 - `kyber_ops.{hpp,cpp}` + `kyber_api.hpp` — ref-only Kyber keygen wrapper
 - `dilithium_ops.{hpp,cpp}` + `dilithium_api.hpp` — ref-only Dilithium keygen wrapper
+- `mceliece_ops.{hpp,cpp}` (namespace `mcs`) — McEliece keygen via libmceliece
+- `slhdsa_ops.{hpp,cpp}` (namespace `mcs`) — SLH-DSA keygen via OpenSSL 3 EVP
+- `mceliece_randombytes.c` — `randombytes_internal_void_voidstar_longlong` for libmceliece (uses getrandom)
 - `yaml_io.{hpp,cpp}` — yaml-cpp YAML emission with literal block scalars
 - `base64.{hpp,cpp}` — Base64 encode/decode
-- `pq/msgpack/src/tray_pack.{hpp,cpp}` — compiled directly into scotty for `--out` binary output
+- `symmetric.hpp` — header-only AES-256-GCM helpers (copy of obi-wan's)
+- `secure_tray.{hpp,cpp}` — `protect`/`unprotect` commands: scrypt KDF + AES-256-GCM per-slot sk encryption
 
-**Output modes**: default = YAML stdout; `--out <file>` = YAML to file + auto-summary to stdout; `--public` = also emit companion public tray (no sk fields, fresh UUID, alias `<name>.pub`).
+**Output modes**: `keygen` default = YAML stdout; `--out <file>` = YAML to file + auto-summary to stdout;
+`--public` = companion public tray (no sk, alias `<name>.pub`).
+`protect --in <f> --out <f>` = encrypt sk fields → `type: secure-tray` YAML.
+`unprotect --in <f> --out <f>` = decrypt sk fields back to plain `type: tray` YAML.
 
 **scotty fips202 linking strategy**: Both kyber and dilithium need their own `fips202` symbol
 namespace (`pqcrystals_kyber_fips202_ref_*` vs `pqcrystals_dilithium_fips202_ref_*`). This is
@@ -170,7 +177,6 @@ The `pq/msgpack/` CMake project builds a standalone `libtraymsgpack.a` and tests
 - `msgpack/src/tray_pack.hpp` — public API: `tray_mp::pack`, `unpack`, `pack_to_file`, `unpack_from_file`
 - `msgpack/src/tray_pack.cpp` — implementation using msgpack-c header-only API
 - `msgpack/test/test_roundtrip.cpp` — in-memory mock Tray round-trip test (no external deps)
-- `msgpack/test/test_from_yaml.cpp` — parses real `.tray` YAML → pack → unpack → verify
 
 **Wire format**: top-level msgpack map with short string keys:
 ```
@@ -179,9 +185,9 @@ map(8) { "v"→uint, "a"→str, "pg"→str, "t"→str, "id"→str, "cr"→str, "
 ```
 pk/sk are stored as raw bytes (msgpack BIN), not base64. Achieves ~67% of YAML file size.
 
-**Dependencies**: msgpack-c header-only at `Crystals/msgpack-c/include` — **required by both
-scotty and msgpack builds**. Do not delete `msgpack-c/`. Compile with `-DMSGPACK_NO_BOOST`
-(no Boost needed). `test_from_yaml` also links yaml-cpp and scotty's `base64.cpp`.
+**Dependencies**: msgpack-c header-only at `Crystals/msgpack-c/include` — **required by obi-wan
+and the standalone msgpack build**. Do not delete `msgpack-c/`. Compile with `-DMSGPACK_NO_BOOST`
+(no Boost needed).
 
 ### Static Linking Strategy
 Kyber and Dilithium are linked **statically** into both scotty and obi-wan via CMake
@@ -215,13 +221,15 @@ from `kyber/ref/randombytes.c`.
 - scotty: `cmake -S pq/scotty -B pq/scotty/build -DCMAKE_PREFIX_PATH=<Crystals>/local`
   - `add_subdirectory(../../kyber/ref)` + `add_subdirectory(../../dilithium/ref)` for 8 static targets
   - `find_package(BLAKE3)` / `find_package(TBB)` resolved via `CMAKE_PREFIX_PATH`
+  - scrypt: 5 `.c` sources compiled directly + 3 pre-built `.a` archives from `../../scrypt/.libs/`
+  - `-DHAVE_CONFIG_H` required by scrypt sources
 - obi-wan: `cmake -S pq/obi-wan -B pq/obi-wan/build -DCMAKE_PREFIX_PATH=<Crystals>/local`
-  - same `add_subdirectory` static targets as scotty
+  - same `add_subdirectory` static targets as scotty; same scrypt setup
   - includes `../msgpack/src`, `../../msgpack-c/include`, `../../XKCP/bin/x86-64/libXKCP.so.headers`
   - links `../../XKCP/bin/x86-64/libXKCP.so` by full path (only remaining dynamic crypto dep)
 - msgpack: `cmake -S pq/msgpack -B pq/msgpack/build` (no PREFIX_PATH needed; no BLAKE3/TBB)
 - static-verify: `cmake -S pq/static-verify -B pq/static-verify/build` (no external deps)
-- msgpack and scotty both use `../../msgpack-c/include` and `../include` (for `tray.hpp`)
+- obi-wan and msgpack use `../../msgpack-c/include`; all use `../include` (for `tray.hpp`)
 
 ## Exit Codes (all tools)
 - `0` — success
