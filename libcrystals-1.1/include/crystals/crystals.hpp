@@ -31,7 +31,12 @@ std::vector<uint8_t> base64_decode(const std::string& encoded); // @api-stable v
 
 // ── Tray domain model ─────────────────────────────────────────────────────────
 
-enum class TrayType { Level0, Level1, Level2_25519, Level2, Level3, Level5 }; // @api-stable v1.0
+enum class TrayType {
+    // crystals group (Kyber + Dilithium)   @api-stable v1.0
+    Level0, Level1, Level2_25519, Level2, Level3, Level5,
+    // mceliece+slhdsa group               @api-stable v1.0, @api-candidate-1.1
+    McEliece_Level1, McEliece_Level2, McEliece_Level3, McEliece_Level4, McEliece_Level5
+};
 
 struct Slot {                          // @api-stable v1.0
     std::string alg_name;             // e.g. "X25519", "Kyber768", "ECDSA P-384", "Dilithium3"
@@ -60,6 +65,25 @@ Tray make_public_tray(const Tray& src);                      // @api-stable v1.0
 
 // Returns true if tray.id matches the UUID derived from its public keys.
 bool validate_tray_uuid(const Tray& tray);                   // @api-stable v1.0
+
+// ── mcs namespace: McEliece + SLH-DSA keygen ─────────────────────────────────
+
+namespace mcs {
+
+struct McElieceKeys {              // @api-candidate-1.1
+    std::vector<uint8_t> pk;
+    std::vector<uint8_t> sk;
+};
+
+struct SlhDsaKeys {                // @api-candidate-1.1
+    std::vector<uint8_t> pk;
+    std::vector<uint8_t> sk;
+};
+
+McElieceKeys keygen_mceliece(const std::string& param_set); // @api-candidate-1.1
+SlhDsaKeys   keygen_slhdsa(const std::string& alg_name);   // @api-candidate-1.1
+
+} // namespace mcs
 
 // ── Secure tray (protect / unprotect) ─────────────────────────────────────────
 
