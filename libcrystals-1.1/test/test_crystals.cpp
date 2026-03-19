@@ -589,6 +589,55 @@ static void test_protect_unprotect() {
     }
 }
 
+// ── Section 7: mceliece+slhdsa keygen ─────────────────────────────────────────
+
+static void test_mceliece_slhdsa_keygen() {
+    std::printf("=== Section 7: mceliece+slhdsa keygen ===\n");
+
+    struct Case {
+        TrayType t;
+        const char* name;
+        size_t expected_slots;
+        const char* expected_group;
+        const char* expected_type_str;
+    };
+    Case cases[] = {
+        { TrayType::McEliece_Level1, "ms-level1", 2, "mceliece+slhdsa", "ms-level1" },
+        { TrayType::McEliece_Level2, "ms-level2", 4, "mceliece+slhdsa", "ms-level2" },
+        { TrayType::McEliece_Level3, "ms-level3", 4, "mceliece+slhdsa", "ms-level3" },
+        { TrayType::McEliece_Level4, "ms-level4", 4, "mceliece+slhdsa", "ms-level4" },
+        { TrayType::McEliece_Level5, "ms-level5", 4, "mceliece+slhdsa", "ms-level5" },
+    };
+
+    for (auto& c : cases) {
+        Tray tray = make_tray(c.t, "alice");
+        CHECK(tray.slots.size() == c.expected_slots);
+        CHECK(!tray.id.empty());
+        CHECK(uuid_is_v8(tray.id));
+        CHECK(tray.alias == "alice");
+        CHECK(tray.profile_group == c.expected_group);
+        CHECK(tray.type_str == c.expected_type_str);
+
+        for (const auto& slot : tray.slots) {
+            CHECK(!slot.pk.empty());
+            CHECK(!slot.sk.empty());
+            CHECK(!slot.alg_name.empty());
+        }
+
+        // public tray: same UUID, sk cleared
+        Tray pub = make_public_tray(tray);
+        CHECK(pub.id == tray.id);
+        CHECK(pub.alias == "alice.pub");
+        for (const auto& slot : pub.slots)
+            CHECK(slot.sk.empty());
+
+        // UUID validation
+        CHECK(validate_tray_uuid(tray));
+
+        std::printf("  %s: OK\n", c.name);
+    }
+}
+
 // ── main ──────────────────────────────────────────────────────────────────────
 
 int main() {
@@ -609,6 +658,7 @@ int main() {
         test_pw_wire_format();
         test_token_format();
         test_protect_unprotect();
+        test_mceliece_slhdsa_keygen();
     } catch (const std::exception& e) {
         std::fprintf(stderr, "UNCAUGHT EXCEPTION: %s\n", e.what());
         return 1;
