@@ -124,6 +124,7 @@ target_link_libraries(crystals PUBLIC
 add_executable(test_crystals
     test/test_crystals.cpp
     "${KYBER_REF_DIR_ABS}/randombytes.c"
+    src/mceliece_randombytes.c    # provides randombytes_internal_void_voidstar_longlong for libmceliece
 )
 target_link_libraries(test_crystals PRIVATE crystals)
 target_compile_options(test_crystals PRIVATE -O2 -Wall -Wextra)
