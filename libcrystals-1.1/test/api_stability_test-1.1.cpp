@@ -17,9 +17,22 @@ static_assert(std::is_same_v<decltype(TrayType::McEliece_Level4), TrayType>);
 static_assert(std::is_same_v<decltype(TrayType::McEliece_Level5), TrayType>);
 
 
-// Add more tests below
+// ── mcs::McElieceKeys struct ──────────────────────────────────────────────
+static_assert(std::is_same_v<decltype(mcs::McElieceKeys::pk), std::vector<uint8_t>>);
+static_assert(std::is_same_v<decltype(mcs::McElieceKeys::sk), std::vector<uint8_t>>);
 
+// ── mcs::SlhDsaKeys struct ───────────────────────────────────────────────
+static_assert(std::is_same_v<decltype(mcs::SlhDsaKeys::pk), std::vector<uint8_t>>);
+static_assert(std::is_same_v<decltype(mcs::SlhDsaKeys::sk), std::vector<uint8_t>>);
 
+// ── mcs keygen function signatures ───────────────────────────────────────
+static_assert(std::is_same_v<
+    decltype(&mcs::keygen_mceliece),
+    mcs::McElieceKeys (*)(const std::string&)>);
 
+static_assert(std::is_same_v<
+    decltype(&mcs::keygen_slhdsa),
+    mcs::SlhDsaKeys (*)(const std::string&)>);
 
+int main() { return 0; }
 
