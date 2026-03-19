@@ -31,6 +31,9 @@
 #include <crystals/kdf.hpp>
 #include <crystals/symmetric.hpp>
 
+// ── Tray protection ───────────────────────────────────────────────────────────
+#include <crystals/secure_tray.hpp>
+
 // ── Wire formats ─────────────────────────────────────────────────────────────
 #include <crystals/armor.hpp>
 #include <crystals/hyke_format.hpp>

@@ -1,7 +1,7 @@
-#include <crystals/tray.hpp>
-#include <crystals/ec_ops.hpp>
-#include <crystals/kyber_ops.hpp>
-#include <crystals/dilithium_ops.hpp>
+#include "tray.hpp"
+#include "ec_ops.hpp"
+#include "kyber_ops.hpp"
+#include "dilithium_ops.hpp"
 #include "blake3.h"
 #include <cstdint>
 #include <cstdio>

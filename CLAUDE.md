@@ -55,6 +55,21 @@ cmake --build pq/msgpack/build -j$(nproc)
 # Tests:   pq/msgpack/build/test_roundtrip
 ```
 
+**Build libcrystals-1.0**
+```bash
+cmake -S pq/libcrystals-1.0 -B pq/libcrystals-1.0/build \
+  -DCMAKE_PREFIX_PATH=/mnt/c/Users/daves/OneDrive/Desktop/Crystals/local
+cmake --build pq/libcrystals-1.0/build -j$(nproc)
+```
+
+## API Stability Rules Related to libcrystals-1.x
+
+- Never modify, rename, or remove any function marked `@api-stable`
+- Never change the signature of any function declared in the public API, "crystals/crystals.hpp"
+- When migrating demo code into libcrystals, add new functions — do not modify existing ones 
+- If a migration seems to require changing a stable function, STOP and report the conflict
+
+
 ## Testing
 
 ```bash
