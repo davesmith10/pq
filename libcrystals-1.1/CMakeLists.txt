@@ -67,6 +67,9 @@ add_library(crystals STATIC
     src/armor.cpp
     src/secure_tray.cpp
     src/pw_crypt.cpp
+    src/mceliece_ops.cpp
+    src/slhdsa_ops.cpp
+    src/mceliece_randombytes.c
     src/token_cmd.cpp
     "${KYBER_REF_DIR_ABS}/randombytes.c"
     ${SCRYPT_SOURCES}
@@ -87,6 +90,7 @@ target_include_directories(crystals
         "${SCRYPT_DIR_ABS}/libcperciva/util"
         "${SCRYPT_DIR_ABS}/libcperciva/cpusupport"
         "${SCRYPT_DIR_ABS}/libscrypt-kdf"
+        /usr/local/include    # mceliece.h
 )
 
 target_compile_definitions(crystals
@@ -109,6 +113,7 @@ target_link_libraries(crystals PUBLIC
     "${SCRYPT_DIR_ABS}/.libs/libscrypt_sse2.a"
     "${SCRYPT_DIR_ABS}/.libs/libcperciva_cpusupport_detect.a"
     "${SCRYPT_DIR_ABS}/.libs/libcperciva_shani.a"
+    /usr/local/lib/libmceliece.a
     BLAKE3::blake3
     TBB::tbb
     OpenSSL::Crypto
@@ -125,8 +130,14 @@ target_compile_options(test_crystals PRIVATE -O2 -Wall -Wextra)
 
 # api_stability_test: compiles only against the public header.
 # Build success = API contract is enforced at compile time.
-add_executable(api_stability_test
-    test/api_stability_test.cpp
+add_executable(api_stability_test_10
+    test/api_stability_test-1.0.cpp
 )
-target_link_libraries(api_stability_test PRIVATE crystals)
-target_compile_options(api_stability_test PRIVATE -O2 -Wall -Wextra)
+target_link_libraries(api_stability_test_10 PRIVATE crystals)
+target_compile_options(api_stability_test_10 PRIVATE -O2 -Wall -Wextra)
+
+add_executable(api_stability_test_11
+    test/api_stability_test-1.1.cpp
+)
+target_link_libraries(api_stability_test_11 PRIVATE crystals)
+target_compile_options(api_stability_test_11 PRIVATE -O2 -Wall -Wextra)
