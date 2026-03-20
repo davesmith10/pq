@@ -16,6 +16,8 @@
 //  0       4    Magic: 0x48594B45 ("HYKE")
 //  4       2    Version: 0x0001
 //  6       1    TrayID: 0x01=Level2_25519, 0x02=Level2, 0x03=Level3, 0x04=Level5
+//                      0x05=McEliece_Level2, 0x06=McEliece_Level3,
+//                      0x07=McEliece_Level4, 0x08=McEliece_Level5
 //  7       1    Flags: 0x00 (reserved)
 //  8       4    header_len  (total bytes from offset 0 to end of sig_pq bytes)
 // 12       4    payload_len (bytes of encrypted payload)
@@ -53,6 +55,10 @@ inline uint8_t tray_id_byte(TrayType t) {
         case TrayType::Level2:       return 0x02;
         case TrayType::Level3:       return 0x03;
         case TrayType::Level5:       return 0x04;
+        case TrayType::McEliece_Level2: return 0x05;
+        case TrayType::McEliece_Level3: return 0x06;
+        case TrayType::McEliece_Level4: return 0x07;
+        case TrayType::McEliece_Level5: return 0x08;
         default: throw std::invalid_argument("Unknown TrayType");
     }
 }
@@ -63,6 +69,10 @@ inline TrayType tray_type_from_id(uint8_t id) {
         case 0x02: return TrayType::Level2;
         case 0x03: return TrayType::Level3;
         case 0x04: return TrayType::Level5;
+        case 0x05: return TrayType::McEliece_Level2;
+        case 0x06: return TrayType::McEliece_Level3;
+        case 0x07: return TrayType::McEliece_Level4;
+        case 0x08: return TrayType::McEliece_Level5;
         default: throw std::runtime_error("Unknown HYKE TrayID: " + std::to_string((int)id));
     }
 }
