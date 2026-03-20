@@ -85,6 +85,50 @@ SlhDsaKeys   keygen_slhdsa(const std::string& alg_name);   // @api-candidate-1.1
 
 } // namespace mcs
 
+// ── mceliece_kem namespace: McEliece KEM encapsulation/decapsulation ─────────
+
+namespace mceliece_kem {                           // @api-candidate-1.1
+
+// Encapsulate: generate ciphertext ct and shared secret ss against public key pk.
+// param_set: "mceliece348864f", "mceliece460896f", "mceliece6688128f",
+//            "mceliece6960119f", or "mceliece8192128f"
+void encaps(const std::string& param_set,
+            const std::vector<uint8_t>& pk,
+            std::vector<uint8_t>& ct_out,
+            std::vector<uint8_t>& ss_out);         // @api-candidate-1.1
+
+// Decapsulate: recover shared secret ss from ciphertext ct and secret key sk.
+void decaps(const std::string& param_set,
+            const std::vector<uint8_t>& sk,
+            const std::vector<uint8_t>& ct,
+            std::vector<uint8_t>& ss_out);         // @api-candidate-1.1
+
+} // namespace mceliece_kem
+
+// ── slhdsa_sig namespace: SLH-DSA signatures ─────────────────────────────────
+
+namespace slhdsa_sig {                             // @api-candidate-1.1
+
+// Returns true if alg_name starts with "SLH-DSA"
+bool is_slhdsa_sig(const std::string& alg_name);  // @api-candidate-1.1
+
+// Returns the fixed signature size in bytes for the given SLH-DSA algorithm.
+size_t sig_bytes(const std::string& alg_name);    // @api-candidate-1.1
+
+// Sign msg with sk; fills sig_out with the signature.
+void sign(const std::string& alg_name,
+          const std::vector<uint8_t>& sk,
+          const std::vector<uint8_t>& msg,
+          std::vector<uint8_t>& sig_out);          // @api-candidate-1.1
+
+// Verify sig against pk and msg. Returns true if valid.
+bool verify(const std::string& alg_name,
+            const std::vector<uint8_t>& pk,
+            const std::vector<uint8_t>& msg,
+            const std::vector<uint8_t>& sig);      // @api-candidate-1.1
+
+} // namespace slhdsa_sig
+
 // ── Secure tray (protect / unprotect) ─────────────────────────────────────────
 
 struct ScryptParams {                  // @api-stable v1.0
