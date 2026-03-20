@@ -34,5 +34,35 @@ static_assert(std::is_same_v<
     decltype(&mcs::keygen_slhdsa),
     mcs::SlhDsaKeys (*)(const std::string&)>);
 
+// ── mceliece_kem namespace ────────────────────────────────────────────────
+static_assert(std::is_same_v<
+    decltype(&mceliece_kem::encaps),
+    void (*)(const std::string&, const std::vector<uint8_t>&,
+             std::vector<uint8_t>&, std::vector<uint8_t>&)>);
+
+static_assert(std::is_same_v<
+    decltype(&mceliece_kem::decaps),
+    void (*)(const std::string&, const std::vector<uint8_t>&,
+             const std::vector<uint8_t>&, std::vector<uint8_t>&)>);
+
+// ── slhdsa_sig namespace ──────────────────────────────────────────────────
+static_assert(std::is_same_v<
+    decltype(&slhdsa_sig::is_slhdsa_sig),
+    bool (*)(const std::string&)>);
+
+static_assert(std::is_same_v<
+    decltype(&slhdsa_sig::sig_bytes),
+    size_t (*)(const std::string&)>);
+
+static_assert(std::is_same_v<
+    decltype(&slhdsa_sig::sign),
+    void (*)(const std::string&, const std::vector<uint8_t>&,
+             const std::vector<uint8_t>&, std::vector<uint8_t>&)>);
+
+static_assert(std::is_same_v<
+    decltype(&slhdsa_sig::verify),
+    bool (*)(const std::string&, const std::vector<uint8_t>&,
+             const std::vector<uint8_t>&, const std::vector<uint8_t>&)>);
+
 int main() { return 0; }
 
