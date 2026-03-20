@@ -638,6 +638,71 @@ static void test_mceliece_slhdsa_keygen() {
     }
 }
 
+// ── Section 8: McEliece KEM ───────────────────────────────────────────────────
+
+static void test_mceliece_kem() {
+    std::printf("=== Section 8: McEliece KEM ===\n");
+
+    // Test encaps/decaps round-trip for each of the 5 param sets
+    const char* param_sets[] = {
+        "mceliece348864f", "mceliece460896f", "mceliece6688128f",
+        "mceliece6960119f", "mceliece8192128f"
+    };
+    for (const char* ps : param_sets) {
+        auto kp = mcs::keygen_mceliece(ps);
+        CHECK(!kp.pk.empty());
+        CHECK(!kp.sk.empty());
+
+        std::vector<uint8_t> ct, ss_enc, ss_dec;
+        mceliece_kem::encaps(ps, kp.pk, ct, ss_enc);
+        CHECK(!ct.empty());
+        CHECK(ss_enc.size() == 32);
+
+        mceliece_kem::decaps(ps, kp.sk, ct, ss_dec);
+        CHECK(ss_enc == ss_dec);
+
+        std::printf("  %s: OK\n", ps);
+    }
+}
+
+// ── Section 9: SLH-DSA sign/verify ───────────────────────────────────────────
+
+static void test_slhdsa_sig() {
+    std::printf("=== Section 9: SLH-DSA sign/verify ===\n");
+
+    const char* algs[] = {
+        "SLH-DSA-SHA2-128f",
+        "SLH-DSA-SHA2-192f",
+        "SLH-DSA-SHA2-256f",
+        "SLH-DSA-SHAKE-192f",
+        "SLH-DSA-SHAKE-256f"
+    };
+
+    std::vector<uint8_t> msg = {0x01, 0x02, 0x03, 0x04, 0x05};
+
+    for (const char* alg : algs) {
+        CHECK(slhdsa_sig::is_slhdsa_sig(alg));
+        CHECK(slhdsa_sig::sig_bytes(alg) > 0);
+
+        auto kp = mcs::keygen_slhdsa(alg);
+        CHECK(!kp.pk.empty());
+        CHECK(!kp.sk.empty());
+
+        std::vector<uint8_t> sig;
+        slhdsa_sig::sign(alg, kp.sk, msg, sig);
+        CHECK(sig.size() == slhdsa_sig::sig_bytes(alg));
+
+        CHECK(slhdsa_sig::verify(alg, kp.pk, msg, sig));
+
+        // tamper check: flip a byte in the message
+        std::vector<uint8_t> bad_msg = msg;
+        bad_msg[0] ^= 0xFF;
+        CHECK(!slhdsa_sig::verify(alg, kp.pk, bad_msg, sig));
+
+        std::printf("  %s: OK\n", alg);
+    }
+}
+
 // ── main ──────────────────────────────────────────────────────────────────────
 
 int main() {
@@ -659,6 +724,8 @@ int main() {
         test_token_format();
         test_protect_unprotect();
         test_mceliece_slhdsa_keygen();
+        test_mceliece_kem();
+        test_slhdsa_sig();
     } catch (const std::exception& e) {
         std::fprintf(stderr, "UNCAUGHT EXCEPTION: %s\n", e.what());
         return 1;
