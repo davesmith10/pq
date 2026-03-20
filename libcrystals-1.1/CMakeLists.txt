@@ -69,6 +69,8 @@ add_library(crystals STATIC
     src/pw_crypt.cpp
     src/mceliece_ops.cpp
     src/slhdsa_ops.cpp
+    src/mceliece_kem.cpp
+    src/slhdsa_sig.cpp
     src/mceliece_randombytes.c
     src/token_cmd.cpp
     "${KYBER_REF_DIR_ABS}/randombytes.c"
