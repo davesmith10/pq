@@ -1,11 +1,13 @@
-#include "tray.hpp"
-#include "yaml_io.hpp"
-#include "secure_tray.hpp"
+#include <crystals/crystals.hpp>
+#include <openssl/ui.h>
+#include <openssl/crypto.h>
+
 #include <iostream>
 #include <fstream>
 #include <string>
 #include <cstring>
 #include <cstdlib>
+#include <cmath>
 
 // ── Usage ─────────────────────────────────────────────────────────────────────
 
@@ -89,12 +91,99 @@ static int write_yaml_file(const Tray& tray, const std::string& path) {
     return 0;
 }
 
+// ── Password helpers ───────────────────────────────────────────────────────────
+
+static float shannon_entropy(const std::string& s) {
+    if (s.empty()) return 0.0f;
+    int freq[256] = {};
+    for (unsigned char c : s) freq[(int)c]++;
+    float H = 0.0f;
+    float n = (float)s.size();
+    for (int i = 0; i < 256; ++i) {
+        if (freq[i] > 0) {
+            float p = (float)freq[i] / n;
+            H -= p * std::log2(p);
+        }
+    }
+    return H;
+}
+
+static bool read_pwfile(const std::string& path, char* buf, int buflen) {
+    std::ifstream f(path);
+    if (!f) {
+        std::cerr << "Error: cannot open password file: " << path << "\n";
+        return false;
+    }
+    std::string line;
+    std::getline(f, line);
+
+    size_t start = 0;
+    while (start < line.size() && (line[start] == ' ' || line[start] == '\t' ||
+                                    line[start] == '\r' || line[start] == '\n'))
+        ++start;
+
+    size_t end = line.size();
+    while (end > start && (line[end-1] == ' ' || line[end-1] == '\t' ||
+                            line[end-1] == '\r' || line[end-1] == '\n'))
+        --end;
+
+    bool trimmed = (start > 0 || end < line.size());
+    std::string pw = line.substr(start, end - start);
+
+    if (trimmed)
+        std::cerr << "Warning: leading/trailing whitespace stripped from password file\n";
+
+    if ((int)pw.size() >= buflen) {
+        std::cerr << "Error: password in file is too long\n";
+        return false;
+    }
+    std::memcpy(buf, pw.data(), pw.size());
+    buf[pw.size()] = '\0';
+    return true;
+}
+
+static bool prompt_password_confirm(char* buf, int buflen) {
+    char verify[256] = {};
+    if (buflen > (int)sizeof(verify))
+        buflen = (int)sizeof(verify);
+
+    if (EVP_read_pw_string(buf, buflen, "Enter password: ", 0) != 0)
+        return false;
+    if (EVP_read_pw_string(verify, (int)sizeof(verify), "Confirm password: ", 0) != 0) {
+        OPENSSL_cleanse(verify, sizeof(verify));
+        return false;
+    }
+    bool match = (std::strcmp(buf, verify) == 0);
+    OPENSSL_cleanse(verify, sizeof(verify));
+    if (!match)
+        std::cerr << "Error: passwords do not match\n";
+    return match;
+}
+
+static bool prompt_password_once(char* buf, int buflen) {
+    return EVP_read_pw_string(buf, buflen, "Enter password: ", 0) == 0;
+}
+
+static int check_password(const char* buf) {
+    size_t len = std::strlen(buf);
+    if (len < 3) {
+        std::cerr << "Error: password must be at least 3 characters\n";
+        return 1;
+    }
+    std::string s(buf, len);
+    float total_bits = shannon_entropy(s) * (float)len;
+    if (total_bits < 80.0f)
+        std::cerr << "Warning: password has low entropy (" << total_bits
+                  << " bits); consider using a stronger password\n";
+    return 0;
+}
+
 // ── keygen command ────────────────────────────────────────────────────────────
 
 static int cmd_keygen(int argc, char* argv[]) {
     std::string alias;
     std::string group_str = "crystals";
-    std::string tray_str;   // empty = use group default
+    std::string tray_str;
     std::string out_file;
     bool pub_flag = false;
 
@@ -130,7 +219,6 @@ static int cmd_keygen(int argc, char* argv[]) {
         return 1;
     }
 
-    // Apply per-group default tray
     if (tray_str.empty()) {
         tray_str = (group_str == "mceliece+slhdsa") ? "level2" : "level2-25519";
     }
@@ -150,7 +238,6 @@ static int cmd_keygen(int argc, char* argv[]) {
             return 1;
         }
     } else {
-        // mceliece+slhdsa
         if      (tray_str == "level1") ttype = TrayType::McEliece_Level1;
         else if (tray_str == "level2") ttype = TrayType::McEliece_Level2;
         else if (tray_str == "level3") ttype = TrayType::McEliece_Level3;
@@ -183,7 +270,6 @@ static int cmd_keygen(int argc, char* argv[]) {
     }
 
     if (!out_file.empty()) {
-        // YAML file output + auto-summary to stdout
         if (int rc = write_yaml_file(tray, out_file)) return rc;
         if (pub_flag) {
             if (int rc = write_yaml_file(pub_tray, derive_pub_filename(out_file))) return rc;
@@ -191,7 +277,6 @@ static int cmd_keygen(int argc, char* argv[]) {
         print_summary(tray);
         if (pub_flag) print_summary(pub_tray);
     } else {
-        // No --out: YAML to stdout (default)
         try {
             std::cout << emit_tray_yaml(tray);
         } catch (const std::exception& e) {
@@ -208,6 +293,173 @@ static int cmd_keygen(int argc, char* argv[]) {
         }
     }
 
+    return 0;
+}
+
+// ── protect command ────────────────────────────────────────────────────────────
+
+static int cmd_protect(int argc, char* argv[]) {
+    std::string in_path, out_path, pw_file;
+
+    for (int i = 1; i < argc; ++i) {
+        if (std::strcmp(argv[i], "--in") == 0) {
+            if (++i >= argc) { std::cerr << "Error: --in requires a value\n"; return 1; }
+            in_path = argv[i];
+        } else if (std::strcmp(argv[i], "--out") == 0) {
+            if (++i >= argc) { std::cerr << "Error: --out requires a value\n"; return 1; }
+            out_path = argv[i];
+        } else if (std::strcmp(argv[i], "--password-file") == 0) {
+            if (++i >= argc) { std::cerr << "Error: --password-file requires a value\n"; return 1; }
+            pw_file = argv[i];
+        } else {
+            std::cerr << "Error: unknown option: " << argv[i] << "\n";
+            return 1;
+        }
+    }
+
+    if (in_path.empty())  { std::cerr << "Error: --in is required\n";  return 1; }
+    if (out_path.empty()) { std::cerr << "Error: --out is required\n"; return 1; }
+
+    char pw_buf[256] = {};
+
+    if (!pw_file.empty()) {
+        if (!read_pwfile(pw_file, pw_buf, sizeof(pw_buf))) return 1;
+    } else {
+        if (!prompt_password_confirm(pw_buf, sizeof(pw_buf))) {
+            std::cerr << "Error: password prompt failed\n";
+            OPENSSL_cleanse(pw_buf, sizeof(pw_buf));
+            return 1;
+        }
+    }
+
+    int pw_rc = check_password(pw_buf);
+    if (pw_rc != 0) {
+        OPENSSL_cleanse(pw_buf, sizeof(pw_buf));
+        return pw_rc;
+    }
+
+    Tray tray;
+    try {
+        tray = load_tray_yaml(in_path);
+    } catch (const std::exception& e) {
+        std::cerr << "Error: " << e.what() << "\n";
+        OPENSSL_cleanse(pw_buf, sizeof(pw_buf));
+        return 3;
+    }
+
+    bool has_sk = false;
+    for (const auto& s : tray.slots)
+        if (!s.sk.empty()) { has_sk = true; break; }
+    if (!has_sk) {
+        std::cerr << "Error: tray has no secret keys — cannot protect a public tray\n";
+        OPENSSL_cleanse(pw_buf, sizeof(pw_buf));
+        return 1;
+    }
+
+    SecureTray st;
+    try {
+        st = protect_tray(tray, pw_buf, std::strlen(pw_buf));
+    } catch (const std::exception& e) {
+        std::cerr << "Error: " << e.what() << "\n";
+        OPENSSL_cleanse(pw_buf, sizeof(pw_buf));
+        return 2;
+    }
+
+    OPENSSL_cleanse(pw_buf, sizeof(pw_buf));
+
+    std::string yaml;
+    try {
+        yaml = emit_secure_tray_yaml(st);
+    } catch (const std::exception& e) {
+        std::cerr << "Error: YAML output failed: " << e.what() << "\n";
+        return 3;
+    }
+
+    std::ofstream f(out_path);
+    if (!f) {
+        std::cerr << "Error: cannot open " << out_path << " for writing\n";
+        return 3;
+    }
+    f << yaml;
+    return 0;
+}
+
+// ── unprotect command ──────────────────────────────────────────────────────────
+
+static int cmd_unprotect(int argc, char* argv[]) {
+    std::string in_path, out_path, pw_file;
+
+    for (int i = 1; i < argc; ++i) {
+        if (std::strcmp(argv[i], "--in") == 0) {
+            if (++i >= argc) { std::cerr << "Error: --in requires a value\n"; return 1; }
+            in_path = argv[i];
+        } else if (std::strcmp(argv[i], "--out") == 0) {
+            if (++i >= argc) { std::cerr << "Error: --out requires a value\n"; return 1; }
+            out_path = argv[i];
+        } else if (std::strcmp(argv[i], "--password-file") == 0) {
+            if (++i >= argc) { std::cerr << "Error: --password-file requires a value\n"; return 1; }
+            pw_file = argv[i];
+        } else {
+            std::cerr << "Error: unknown option: " << argv[i] << "\n";
+            return 1;
+        }
+    }
+
+    if (in_path.empty())  { std::cerr << "Error: --in is required\n";  return 1; }
+    if (out_path.empty()) { std::cerr << "Error: --out is required\n"; return 1; }
+
+    char pw_buf[256] = {};
+
+    if (!pw_file.empty()) {
+        if (!read_pwfile(pw_file, pw_buf, sizeof(pw_buf))) return 1;
+    } else {
+        if (!prompt_password_once(pw_buf, sizeof(pw_buf))) {
+            std::cerr << "Error: password prompt failed\n";
+            OPENSSL_cleanse(pw_buf, sizeof(pw_buf));
+            return 1;
+        }
+    }
+
+    int pw_rc = check_password(pw_buf);
+    if (pw_rc != 0) {
+        OPENSSL_cleanse(pw_buf, sizeof(pw_buf));
+        return pw_rc;
+    }
+
+    SecureTray st;
+    try {
+        st = load_secure_tray_yaml(in_path);
+    } catch (const std::exception& e) {
+        std::cerr << "Error: " << e.what() << "\n";
+        OPENSSL_cleanse(pw_buf, sizeof(pw_buf));
+        return 3;
+    }
+
+    Tray tray;
+    try {
+        tray = unprotect_tray(st, pw_buf, std::strlen(pw_buf));
+    } catch (const std::exception& e) {
+        std::cerr << "Error: " << e.what() << "\n";
+        OPENSSL_cleanse(pw_buf, sizeof(pw_buf));
+        return 2;
+    }
+
+    OPENSSL_cleanse(pw_buf, sizeof(pw_buf));
+
+    std::string yaml;
+    try {
+        yaml = emit_tray_yaml(tray);
+    } catch (const std::exception& e) {
+        std::cerr << "Error: YAML output failed: " << e.what() << "\n";
+        return 3;
+    }
+
+    std::ofstream f(out_path);
+    if (!f) {
+        std::cerr << "Error: cannot open " << out_path << " for writing\n";
+        return 3;
+    }
+    f << yaml;
     return 0;
 }
 
