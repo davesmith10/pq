@@ -162,26 +162,27 @@ Wrapped in `-----BEGIN/END OBIWAN PW ENCRYPTED FILE-----` PEM armor.
 ```
 "obi-wan\0" (8B) | version (2B)
 | TLV[0x01: data] | TLV[0x02: issued_at] | TLV[0x03: expires_at]
-| TLV[0x04: tray_uuid] | TLV[0x05: algorithm]
+| TLV[0x04: tray_uuid] | TLV[0x05: algorithm] | TLV[0x06: token_uuid]
 | sig_len (4B BE) | signature
 ```
+
+`token_uuid` is a UUID v4 generated fresh for each `gentok` call (4 random bytes with version/variant bits set).
 
 Tokens are output as a single base64 line (no PEM armor).
 
 ## Build
 
 ```bash
-cmake -S pq/obi-wan -B pq/obi-wan/build \
-  -DCMAKE_PREFIX_PATH=/path/to/Crystals/local
+cmake -S pq/obi-wan -B pq/obi-wan/build
 cmake --build pq/obi-wan/build -j$(nproc)
 # Binary: pq/obi-wan/build/obi-wan
+# Requires: libcrystals-1.1 installed to /usr/local
+#   sudo bash pq/libcrystals-1.1/install.sh
 ```
 
-Dependencies resolved via `CMAKE_PREFIX_PATH`: BLAKE3, oneTBB, OpenSSL, yaml-cpp.
-Kyber and Dilithium are compiled from source via `add_subdirectory`.
-McEliece is linked from `/usr/local/lib/libmceliece.a` (headers at `/usr/local/include/mceliece.h`).
-SLH-DSA is provided by the OpenSSL 3.5 default provider — no extra library needed.
-XKCP (`libXKCP.so`) is a pre-built dynamic library linked by full path.
+All crypto dependencies (Kyber, Dilithium, McEliece, SLH-DSA, scrypt, BLAKE3, oneTBB,
+XKCP, yaml-cpp, OpenSSL) are resolved transitively via the `Crystals::crystals` CMake
+target — no `CMAKE_PREFIX_PATH` needed.
 
 ## Examples
 

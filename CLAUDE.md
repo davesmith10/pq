@@ -6,9 +6,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ```
 Crystals/
-├── kyber/ref/          — Kyber reference C source; statically compiled into obi-wan via CMake
+├── kyber/ref/          — Kyber reference C source; statically compiled into libcrystals-1.1 via CMake
 ├── kyber/avx2/         — Kyber AVX2 source (not used by the CMake tools)
-├── dilithium/ref/      — Dilithium reference C source; statically compiled into obi-wan via CMake
+├── dilithium/ref/      — Dilithium reference C source; statically compiled into libcrystals-1.1 via CMake
 ├── dilithium/avx2/     — Dilithium AVX2 source (not used by the CMake tools)
 ├── msgpack-c/          — msgpack-c header-only library (vendored)
 ├── XKCP/               — eXtended Keccak Code Package; pre-built libXKCP.so (obi-wan + libcrystals)
@@ -29,9 +29,6 @@ Crystals/
 
 ## Build Commands
 
-**Kyber and Dilithium** are compiled statically from source via CMake `add_subdirectory` —
-no separate `make shared` step is needed for the tools.
-
 **Build scotty** (hybrid PQ+classical tray keygen):
 ```bash
 cmake -S pq/scotty -B pq/scotty/build
@@ -42,10 +39,10 @@ cmake --build pq/scotty/build -j$(nproc)
 
 **Build obi-wan** (hybrid KEM file encryption):
 ```bash
-cmake -S pq/obi-wan -B pq/obi-wan/build \
-  -DCMAKE_PREFIX_PATH=/mnt/c/Users/daves/OneDrive/Desktop/Crystals/local
+cmake -S pq/obi-wan -B pq/obi-wan/build
 cmake --build pq/obi-wan/build -j$(nproc)
 # Binary: pq/obi-wan/build/obi-wan
+# Requires: libcrystals-1.1 installed to /usr/local (see install.sh below)
 ```
 
 **Build msgpack** (tray binary encoding library + tests):
@@ -56,7 +53,7 @@ cmake --build pq/msgpack/build -j$(nproc)
 # Tests:   pq/msgpack/build/test_roundtrip
 ```
 
-**Install libcrystals-1.1** (required by scotty; installs fat static archive + CMake config to /usr/local):
+**Install libcrystals-1.1** (required by scotty and obi-wan; installs fat static archive + CMake config to /usr/local):
 ```bash
 sudo bash pq/libcrystals-1.1/install.sh
 # Use --skip-build to regenerate the CMake/pkg-config files without rebuilding
@@ -123,28 +120,27 @@ cd dilithium/ref && make && ./test/test_dilithium3
 obi-wan has two operation modes: **OBIWAN** (encrypt/decrypt using both KEM slots) and
 **HYKE** (sign/verify using all four slots — both KEMs for encryption, both sig slots for auth).
 
-**Source files:**
-- `obi-wan/src/main.cpp` — arg parsing, encrypt/decrypt/sign/verify dispatch
-- `obi-wan/src/kyber_api.hpp` — `extern "C"` for Kyber{512,768,1024} ref `enc`/`dec`
-- `obi-wan/src/kyber_kem.{hpp,cpp}` — `encaps()`/`decaps()` wrappers
-- `obi-wan/src/ec_kem.{hpp,cpp}` — ECDH encaps/decaps (X25519 raw key API; P-curves via `OSSL_PARAM_BLD`)
-- `obi-wan/src/ec_sig.{hpp,cpp}` — classical signing: Ed25519 (raw key + NULL md); ECDSA P-256/384/521 (DER→P1363)
-- `obi-wan/src/dilithium_api.hpp` — `extern "C"` for Dilithium{2,3,5} ref `_signature`/`_verify`
-- `obi-wan/src/dilithium_sig.{hpp,cpp}` — PQ signing wrappers (ref only, no ctx string)
-- `obi-wan/src/kdf.hpp` — header-only: SHAKE256, KMAC256 (OBIWAN), `derive_key_hyke()`, `compute_hyke_ctx()`
-- `obi-wan/src/symmetric.hpp` — header-only AES-256-GCM and ChaCha20-Poly1305
-- `obi-wan/src/hyke_format.hpp` — header-only: `HykeHeader`, pack/unpack, armor/dearmor, UUID parser
-- `obi-wan/src/tray_reader.{hpp,cpp}` — load YAML or msgpack tray (auto-detect by first byte)
-- `obi-wan/src/armor.{hpp,cpp}` — OBIWAN wire format pack/unpack + base64 armor/dearmor
-- `obi-wan/src/base64.{hpp,cpp}` — base64 encode/decode
+**Source files** (single file after the libcrystals-1.1 migration):
+- `obi-wan/src/main.cpp` — arg parsing, file I/O, and CLI handlers `cmd_encrypt`, `cmd_decrypt`,
+  `cmd_sign`, `cmd_verify`, `cmd_gentok`, `cmd_valtok`, `cmd_pwencrypt`, `cmd_pwdecrypt`.
+  All crypto delegated to `Crystals::crystals`.
 
-**XKCP dependency**: `XKCP/bin/x86-64/libXKCP.so` (linked by full path; pre-built, do not
-delete) + headers at `XKCP/bin/x86-64/libXKCP.so.headers/` (`SimpleFIPS202.h` for SHAKE256,
-`SP800-185.h` for KMAC256). This is the only remaining dynamic dependency for obi-wan.
+**Library boundary**: The library (`Crystals::crystals`) owns all crypto, KDF, wire-format
+pack/unpack, tray loading, and serialisation. obi-wan owns arg parsing, file I/O, and
+stdio interaction.
 
-**fips202 linking**: both `pqcrystals_kyber_fips202_ref` and `pqcrystals_dilithium_fips202_ref`
-are compiled as separate static archives via `add_subdirectory`, each with their own symbol
-namespace. No OBJECT libraries or `-rdynamic` required.
+**Library API used** (all `@api-stable` in `crystals/crystals.hpp`):
+- `load_tray` — auto-detects YAML vs msgpack by first byte
+- `ec_kem::encaps/decaps`, `kyber_kem::encaps/decaps`, `mceliece_kem::encaps/decaps`
+- `ec_sig::sign/verify`, `dilithium_sig::sign/verify`, `slhdsa_sig::sign/verify`
+- `derive_key_shake`, `derive_key_kmac`, `derive_key_hyke`, `compute_hyke_ctx`
+- `aes256gcm_encrypt/decrypt`, `chacha20poly1305_encrypt/decrypt`
+- `armor_pack/unpack` (OBIWAN), `hyke_pack/unpack` (HYKE)
+- `cmd_pwencrypt`, `cmd_pwdecrypt`, `cmd_gentok`, `cmd_valtok`
+
+**Link deps**: `Crystals::crystals` (fat static archive; pulls in XKCP, BLAKE3, TBB, yaml-cpp,
+OpenSSL::Crypto, scrypt, Kyber, Dilithium, McEliece, SLH-DSA transitively) +
+`OpenSSL::Crypto` directly (for `openssl/rand.h` RAND_bytes in main.cpp).
 
 **OBIWAN KDF input construction**:
 - SHAKE256: `SHAKE256(len32(SS_cl)||SS_cl||len32(SS_pq)||SS_pq||len32(CT_cl)||CT_cl||len32(CT_pq)||CT_pq, 32B)`
@@ -161,8 +157,8 @@ are known from the tray type before signing. Conversion: `EVP_DigestSign` → DE
 Fixed sizes: P-256=64B, P-384=96B, P-521=132B.
 
 **Slot selection**: uses `alg_name` matching — KEM classical: `{X25519,P-256,P-384,P-521}`;
-KEM PQ: prefix `"Kyber"`; Sig classical: `{Ed25519,ECDSA P-256,ECDSA P-384,ECDSA P-521}`;
-Sig PQ: `{Dilithium2,Dilithium3,Dilithium5}`.
+KEM PQ: prefix `"Kyber"` or prefix `"mceliece"`; Sig classical: `{Ed25519,ECDSA P-256,ECDSA P-384,ECDSA P-521}`;
+Sig PQ: `{Dilithium2,Dilithium3,Dilithium5}` or prefix `"SLH-DSA"`.
 
 ### scotty Architecture
 scotty generates **hybrid trays** — named bundles of paired PQ+classical key slots, and can
@@ -193,8 +189,9 @@ and `openssl/crypto.h` OPENSSL_cleanse in cmd_protect/cmd_unprotect).
 `unprotect --in <f> --out <f>` = decrypt sk fields back to plain `type: tray` YAML.
 
 ### msgpack Architecture
-`pq/msgpack/src/tray_pack.{hpp,cpp}` is used by obi-wan (compiled in) and the standalone library.
-The `pq/msgpack/` CMake project builds a standalone `libtraymsgpack.a` and tests for other consumers.
+`pq/msgpack/src/tray_pack.{hpp,cpp}` is compiled into libcrystals-1.1 (obi-wan and scotty reach
+it via `load_tray()`). The `pq/msgpack/` CMake project builds a standalone `libtraymsgpack.a`
+and tests for other consumers.
 
 - `pq/include/tray.hpp` — shared domain model included by both scotty and msgpack
 - `msgpack/src/tray_pack.hpp` — public API: `tray_mp::pack`, `unpack`, `pack_to_file`, `unpack_from_file`
@@ -208,27 +205,21 @@ map(8) { "v"→uint, "a"→str, "pg"→str, "t"→str, "id"→str, "cr"→str, "
 ```
 pk/sk are stored as raw bytes (msgpack BIN), not base64. Achieves ~67% of YAML file size.
 
-**Dependencies**: msgpack-c header-only at `Crystals/msgpack-c/include` — **required by obi-wan
-and the standalone msgpack build**. Do not delete `msgpack-c/`. Compile with `-DMSGPACK_NO_BOOST`
-(no Boost needed).
+**Dependencies**: msgpack-c header-only at `Crystals/msgpack-c/include` — **required by
+libcrystals-1.1 and the standalone msgpack build**. Do not delete `msgpack-c/`. Compile with
+`-DMSGPACK_NO_BOOST` (no Boost needed).
 
 ### Static Linking Strategy
-**obi-wan**: Kyber and Dilithium are linked statically via CMake `add_subdirectory`. Each build
-pulls in 8 static targets: 3 Kyber variants + kyber fips202, 3 Dilithium variants + dilithium
-fips202. The two fips202 archives occupy different symbol namespaces
-(`pqcrystals_kyber_fips202_ref_*` vs `pqcrystals_dilithium_fips202_ref_*`) and do not collide.
-`randombytes()` is compiled directly into obi-wan from `kyber/ref/randombytes.c`.
-
-**scotty**: Uses `libcrystals-1.1.a` — a fat static archive (installed at `/usr/local/lib/`) that
-bundles all 8 PQ ref archives + 3 scrypt archives + McEliece + the crystals objects. No separate
-`add_subdirectory` or `kyber/ref` source needed. Link via `Crystals::crystals` CMake target.
+**obi-wan** and **scotty**: Both use `libcrystals-1.1.a` — a fat static archive (installed at
+`/usr/local/lib/`) that bundles all 8 PQ ref archives + 3 scrypt archives + McEliece + the
+crystals objects. No separate `add_subdirectory` or `kyber/ref` source needed. Link via the
+`Crystals::crystals` CMake target.
 
 ### RPATH Setup
-- **scotty**: RPATH set to `{TBB libdir}:/usr/local/lib` — TBB dir derived from the `TBB::tbb`
-  imported target location (baked in by CrystalsConfig.cmake); `/usr/local/lib` covers
-  `libXKCP.so` (installed there by `libcrystals-1.1/install.sh`).
-- **obi-wan**: RPATH set to `XKCP/bin/x86-64/` (for libXKCP.so) and the TBB library dir.
-  Install RPATH uses `$ORIGIN/../lib/obi-wan` (relative, for portable installs).
+Both **scotty** and **obi-wan** use the same RPATH strategy:
+- TBB libdir (derived from `TBB::tbb` imported target location, resolved transitively via
+  `CrystalsConfig.cmake`) + `/usr/local/lib` (covers `libXKCP.so` installed there by
+  `libcrystals-1.1/install.sh`).
 
 ### Key Size Constants (from `*_api.hpp`)
 | Level | Public Key | Secret Key | Ciphertext/Sig |
@@ -248,13 +239,13 @@ bundles all 8 PQ ref archives + 3 scrypt archives + McEliece + the crystals obje
   - `find_package(OpenSSL REQUIRED)` — for `openssl/ui.h` + `openssl/crypto.h`
   - TBB and BLAKE3 resolved transitively inside CrystalsConfig.cmake
   - RPATH: `CMAKE_BUILD_RPATH` set to TBB libdir + `/usr/local/lib`
-- obi-wan: `cmake -S pq/obi-wan -B pq/obi-wan/build -DCMAKE_PREFIX_PATH=<Crystals>/local`
-  - same `add_subdirectory` static targets as scotty; same scrypt setup
-  - includes `../msgpack/src`, `../../msgpack-c/include`, `../../XKCP/bin/x86-64/libXKCP.so.headers`
-  - links `../../XKCP/bin/x86-64/libXKCP.so` by full path (only remaining dynamic crypto dep)
+- obi-wan: `cmake -S pq/obi-wan -B pq/obi-wan/build` (no CMAKE_PREFIX_PATH needed)
+  - `find_package(Crystals REQUIRED)` — finds from `/usr/local/lib/cmake/crystals`
+  - `find_package(OpenSSL REQUIRED)` — for `openssl/rand.h`
+  - TBB, BLAKE3, XKCP, scrypt, PQ libs all resolved transitively via CrystalsConfig.cmake
+  - RPATH: `CMAKE_BUILD_RPATH` set to TBB libdir + `/usr/local/lib`
 - msgpack: `cmake -S pq/msgpack -B pq/msgpack/build` (no PREFIX_PATH needed; no BLAKE3/TBB)
 - static-verify: `cmake -S pq/static-verify -B pq/static-verify/build` (no external deps)
-- obi-wan and msgpack use `../../msgpack-c/include`; all use `../include` (for `tray.hpp`)
 
 ## Exit Codes (all tools)
 - `0` — success

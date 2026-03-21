@@ -174,10 +174,10 @@ file size across all tray types.
 library, and CMake package config. BLAKE3 and oneTBB must be in `Crystals/local/` first;
 see `pq/BLAKE3-BUILD.md` for the one-time build procedure.
 
-**Additional prerequisites for obi-wan**: yaml-cpp, BLAKE3 (with oneTBB) in `Crystals/local/`,
-a pre-built `XKCP/bin/x86-64/libXKCP.so`, and a built `scrypt/` tree at `Crystals/scrypt/`
-(run `./configure && make` once). Kyber and Dilithium are compiled statically from source via
-CMake `add_subdirectory` — no separate `make shared` step needed.
+**Additional prerequisites for obi-wan**: `libcrystals-1.1` installed to `/usr/local` via
+`sudo bash pq/libcrystals-1.1/install.sh` (same as scotty). All crypto deps — Kyber,
+Dilithium, McEliece, SLH-DSA, scrypt, BLAKE3, oneTBB, XKCP, yaml-cpp — are bundled
+inside the fat static archive.
 
 **Build individual tools** (from the `Crystals/` root):
 
@@ -186,8 +186,8 @@ CMake `add_subdirectory` — no separate `make shared` step needed.
 cmake -S pq/scotty  -B pq/scotty/build
 cmake --build pq/scotty/build -j$(nproc)
 
-# obi-wan — still uses Crystals/local/ for BLAKE3 + TBB
-cmake -S pq/obi-wan -B pq/obi-wan/build -DCMAKE_PREFIX_PATH=<Crystals>/local
+# obi-wan — no CMAKE_PREFIX_PATH needed; uses libcrystals-1.1 from /usr/local
+cmake -S pq/obi-wan -B pq/obi-wan/build
 cmake --build pq/obi-wan/build -j$(nproc)
 
 cmake -S pq/msgpack -B pq/msgpack/build
@@ -223,7 +223,7 @@ Crystals/
 ├── dilithium/ref/      — Dilithium reference C source; statically compiled via CMake
 ├── dilithium/avx2/     — Dilithium AVX2 source (not used by the CMake tools)
 ├── msgpack-c/          — msgpack-c header-only library (vendored)
-├── XKCP/               — eXtended Keccak Code Package; pre-built libXKCP.so (obi-wan only)
+├── XKCP/               — eXtended Keccak Code Package; pre-built libXKCP.so (bundled by libcrystals-1.1)
 ├── BLAKE3/             — BLAKE3 source; built + installed to local/ (UUID derivation)
 ├── oneTBB/             — oneTBB source; built + installed to local/ (BLAKE3 parallelism)
 ├── local/              — Shared install prefix for BLAKE3 + TBB (CMake finds them here)
