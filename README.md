@@ -15,11 +15,18 @@ Generates named **hybrid trays** — bundles of paired PQ+classical key slots
 covering both KEM and signature roles.
 
 ```
-scotty keygen [--profile level0|level1|level2-25519|level2|level3|level5]
+scotty keygen [--group crystals|mceliece+slhdsa]
+              [--profile <level>]
               --alias <name>
               [--out <file>]
               [--public]
+scotty protect   --in <file> --out <file> [--password-file <file>]
+scotty unprotect --in <file> --out <file> [--password-file <file>]
 ```
+
+Default group: `crystals`. Default profile: `level2-25519`.
+
+**`--group crystals` profiles** (hybrid Kyber + Dilithium):
 
 | Profile        | KEM-classic | KEM-PQ    | Sig-classic  | Sig-PQ     |
 |----------------|-------------|-----------|--------------|------------|
@@ -30,12 +37,20 @@ scotty keygen [--profile level0|level1|level2-25519|level2|level3|level5]
 | `level3`       | P-384       | Kyber768  | ECDSA P-384  | Dilithium3 |
 | `level5`       | P-521       | Kyber1024 | ECDSA P-521  | Dilithium5 |
 
-Default profile: `level2-25519`.
+**`--group mceliece+slhdsa` profiles** (hybrid McEliece + SLH-DSA):
+
+| Profile | KEM-classic | KEM-PQ            | Sig-classic  | Sig-PQ               |
+|---------|-------------|-------------------|--------------|----------------------|
+| `level1`| —           | mceliece348864f   | —            | SLH-DSA-SHA2-128f    |
+| `level2`| P-256       | mceliece460896f   | ECDSA P-256  | SLH-DSA-SHA2-192f    |
+| `level3`| P-384       | mceliece6688128f  | ECDSA P-384  | SLH-DSA-SHAKE-192f   |
+| `level4`| P-521       | mceliece6960119f  | ECDSA P-521  | SLH-DSA-SHA2-256f    |
+| `level5`| P-256       | mceliece8192128f  | ECDSA P-256  | SLH-DSA-SHAKE-256f   |
 
 **Output modes:**
 - Default (no flags): YAML with literal block scalar base64 to stdout
 - `--out <file>`: write YAML to `<file>`; auto-prints a human-readable summary to stdout
-- `--public`: also emit a companion public tray (alias `<name>.pub`, fresh UUID, no secret keys). With `--out`, written to `<name>.pub.<ext>`; without `--out`, both YAML documents go to stdout
+- `--public`: also emit a companion public tray (alias `<name>.pub`, **same UUID** as the private tray, no secret keys). With `--out`, written to `<name>.pub.<ext>`; without `--out`, both YAML documents go to stdout
 
 ### obi-wan — Hybrid KEM Encryption and Signing
 
@@ -128,12 +143,12 @@ confidentiality) and **both** the classical and PQ signatures (for authenticity)
 
 ### msgpack — Tray Binary Encoding
 
-Static library (`libtraymsgpack.a`) and shared implementation used by scotty.
+Static library (`libtraymsgpack.a`) and shared implementation used by obi-wan.
 Converts `Tray` objects to and from compact MessagePack binary. YAML is the
 canonical human-readable form; msgpack is the compact deployment artifact.
 
-The `tray_pack` module is compiled directly into `scotty` (no separate library
-step needed to use `--out`). Use the standalone library for other consumers:
+The `tray_pack` module is compiled directly into `obi-wan` (enabling `--tray`
+to accept both YAML and msgpack trays). Use the standalone library for other consumers:
 
 ```cpp
 #include "tray_pack.hpp"
@@ -152,22 +167,26 @@ file size across all tray types.
 
 ## Build
 
-**Prerequisites**: CMake ≥ 3.15, GCC/Clang with C++17, OpenSSL 3, yaml-cpp, BLAKE3 (static,
-with oneTBB), a pre-built `XKCP/bin/x86-64/libXKCP.so` (required by obi-wan only), and
-a built `scrypt/` tree at `Crystals/scrypt/` (required by obi-wan's `pwencrypt`/`pwdecrypt`
-commands — run `./configure && make` inside the scrypt directory once).
+**Prerequisites (all tools)**: CMake ≥ 3.15, GCC/Clang with C++17, OpenSSL 3.
 
-Kyber and Dilithium are compiled **statically** from source via CMake `add_subdirectory` —
-no separate `make shared` step is needed. BLAKE3 and oneTBB must be installed to
-`Crystals/local/` first; see `pq/BLAKE3-BUILD.md` for the one-time build procedure.
+**Additional prerequisites for scotty**: `libcrystals-1.1` installed to `/usr/local` via
+`sudo bash pq/libcrystals-1.1/install.sh`. This installs the fat static archive, XKCP shared
+library, and CMake package config. BLAKE3 and oneTBB must be in `Crystals/local/` first;
+see `pq/BLAKE3-BUILD.md` for the one-time build procedure.
 
-**Build individual tools** (from the `Crystals/` root; set `CMAKE_PREFIX_PATH` to your
-`Crystals/local/` prefix so CMake can find BLAKE3 and TBB):
+**Additional prerequisites for obi-wan**: yaml-cpp, BLAKE3 (with oneTBB) in `Crystals/local/`,
+a pre-built `XKCP/bin/x86-64/libXKCP.so`, and a built `scrypt/` tree at `Crystals/scrypt/`
+(run `./configure && make` once). Kyber and Dilithium are compiled statically from source via
+CMake `add_subdirectory` — no separate `make shared` step needed.
+
+**Build individual tools** (from the `Crystals/` root):
 
 ```bash
-cmake -S pq/scotty  -B pq/scotty/build  -DCMAKE_PREFIX_PATH=<Crystals>/local
+# scotty — no CMAKE_PREFIX_PATH needed; uses libcrystals-1.1 from /usr/local
+cmake -S pq/scotty  -B pq/scotty/build
 cmake --build pq/scotty/build -j$(nproc)
 
+# obi-wan — still uses Crystals/local/ for BLAKE3 + TBB
 cmake -S pq/obi-wan -B pq/obi-wan/build -DCMAKE_PREFIX_PATH=<Crystals>/local
 cmake --build pq/obi-wan/build -j$(nproc)
 
@@ -210,8 +229,9 @@ Crystals/
 ├── local/              — Shared install prefix for BLAKE3 + TBB (CMake finds them here)
 └── pq/                 — Main project (git root)
     ├── include/        — Shared headers (tray.hpp domain model)
-    ├── scotty/         — Hybrid PQ+classical tray keygen tool
+    ├── scotty/         — Hybrid PQ+classical tray keygen tool (uses libcrystals-1.1)
     ├── obi-wan/        — Hybrid KEM file encryption tool
+    ├── libcrystals-1.1/ — Consolidated crypto library; installed to /usr/local via install.sh
     ├── msgpack/        — Tray binary encoding library + tests
     ├── misc/           — Utilities (hashpass, etc.)
     └── static-verify/  — Standalone project verifying the static Kyber + Dilithium CMake

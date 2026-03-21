@@ -6,19 +6,20 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ```
 Crystals/
-├── kyber/ref/          — Kyber reference C source; statically compiled into tools via CMake
+├── kyber/ref/          — Kyber reference C source; statically compiled into obi-wan via CMake
 ├── kyber/avx2/         — Kyber AVX2 source (not used by the CMake tools)
-├── dilithium/ref/      — Dilithium reference C source; statically compiled via CMake
+├── dilithium/ref/      — Dilithium reference C source; statically compiled into obi-wan via CMake
 ├── dilithium/avx2/     — Dilithium AVX2 source (not used by the CMake tools)
 ├── msgpack-c/          — msgpack-c header-only library (vendored)
-├── XKCP/               — eXtended Keccak Code Package; pre-built libXKCP.so (obi-wan only)
+├── XKCP/               — eXtended Keccak Code Package; pre-built libXKCP.so (obi-wan + libcrystals)
 ├── BLAKE3/             — BLAKE3 source; built + installed to local/ (UUID derivation)
 ├── oneTBB/             — oneTBB source; built + installed to local/ (BLAKE3 parallelism)
 ├── local/              — Shared install prefix for BLAKE3 + TBB (CMake finds them here)
 └── pq/                 — Main project (git root)
     ├── include/        — Shared headers (tray.hpp domain model)
-    ├── scotty/         — Hybrid PQ+classical tray keygen tool
+    ├── scotty/         — Hybrid PQ+classical tray keygen tool (uses libcrystals-1.1)
     ├── obi-wan/        — Hybrid KEM file encryption tool
+    ├── libcrystals-1.1/ — Consolidated crypto library; installed to /usr/local via install.sh
     ├── msgpack/        — Tray binary encoding library + tests
     ├── misc/           — Utilities (hashpass, etc.)
     └── static-verify/  — Standalone project verifying the static Kyber + Dilithium CMake
@@ -33,10 +34,10 @@ no separate `make shared` step is needed for the tools.
 
 **Build scotty** (hybrid PQ+classical tray keygen):
 ```bash
-cmake -S pq/scotty -B pq/scotty/build \
-  -DCMAKE_PREFIX_PATH=/mnt/c/Users/daves/OneDrive/Desktop/Crystals/local
+cmake -S pq/scotty -B pq/scotty/build
 cmake --build pq/scotty/build -j$(nproc)
 # Binary: pq/scotty/build/scotty
+# Requires: libcrystals-1.1 installed to /usr/local (see install.sh below)
 ```
 
 **Build obi-wan** (hybrid KEM file encryption):
@@ -55,11 +56,10 @@ cmake --build pq/msgpack/build -j$(nproc)
 # Tests:   pq/msgpack/build/test_roundtrip
 ```
 
-**Build libcrystals-1.0**
+**Install libcrystals-1.1** (required by scotty; installs fat static archive + CMake config to /usr/local):
 ```bash
-cmake -S pq/libcrystals-1.0 -B pq/libcrystals-1.0/build \
-  -DCMAKE_PREFIX_PATH=/mnt/c/Users/daves/OneDrive/Desktop/Crystals/local
-cmake --build pq/libcrystals-1.0/build -j$(nproc)
+sudo bash pq/libcrystals-1.1/install.sh
+# Use --skip-build to regenerate the CMake/pkg-config files without rebuilding
 ```
 
 ## API Stability Rules Related to libcrystals-1.x
@@ -89,15 +89,23 @@ echo "hello" > /tmp/plain.txt
 ./pq/obi-wan/build/obi-wan sign   --tray /tmp/alice.tray /tmp/plain.txt > /tmp/alice.hyke
 ./pq/obi-wan/build/obi-wan verify --tray /tmp/alice.tray /tmp/alice.hyke | diff /tmp/plain.txt -
 
-# scotty: hybrid tray keygen
+# scotty: hybrid tray keygen (crystals group, default)
 ./scotty keygen --profile level3 --alias alice                          # YAML to stdout (default)
 ./scotty keygen --alias bob                                             # default profile: level2-25519
 ./scotty keygen --profile level0 --alias alice                          # classical-only (2 slots)
 ./scotty keygen --profile level1 --alias alice                          # PQ-only (2 slots)
 ./scotty keygen --alias alice --out alice.tray                          # YAML to file + auto-summary to stdout
-./scotty keygen --profile level3 --alias bob --out bob.tray
-./scotty keygen --alias carol --profile level2-25519 --public           # YAML + companion public YAML
+./scotty keygen --alias carol --profile level2-25519 --public           # YAML + companion public YAML (same UUID)
 ./scotty keygen --alias carol --profile level3 --public --out carol.tray  # carol.tray + carol.pub.tray
+
+# scotty: mceliece+slhdsa group
+./scotty keygen --group mceliece+slhdsa --alias alice --profile level1  # 2 slots (PQ-only)
+./scotty keygen --group mceliece+slhdsa --alias alice --profile level2  # 4 slots (P-256 + mc460896f + ECDSA + SLH-DSA)
+./scotty keygen --group mceliece+slhdsa --alias alice --profile level5  # 4 slots (P-256 + mc8192128f + ECDSA + SLH-DSA)
+
+# scotty: protect / unprotect
+./scotty protect   --in alice.tray --out alice.sec.tray --password-file /tmp/pw.txt
+./scotty unprotect --in alice.sec.tray --out alice.plain.tray --password-file /tmp/pw.txt
 
 # msgpack: round-trip tests
 ./pq/msgpack/build/test_roundtrip
@@ -158,31 +166,31 @@ Sig PQ: `{Dilithium2,Dilithium3,Dilithium5}`.
 
 ### scotty Architecture
 scotty generates **hybrid trays** — named bundles of paired PQ+classical key slots, and can
-password-protect/unprotect the secret keys in place.
-- `pq/include/tray.hpp` — shared `Tray`/`Slot` structs and `TrayType` enum (domain model, not scotty-internal)
-- `scotty/src/tray.cpp` — `make_tray()`, `make_public_tray()`, `validate_tray_uuid()`, UUID + ISO 8601 timestamps
-- `ec_ops.{hpp,cpp}` — OpenSSL EVP keygen for X25519, Ed25519, P-256, P-384, P-521
-- `kyber_ops.{hpp,cpp}` + `kyber_api.hpp` — ref-only Kyber keygen wrapper
-- `dilithium_ops.{hpp,cpp}` + `dilithium_api.hpp` — ref-only Dilithium keygen wrapper
-- `mceliece_ops.{hpp,cpp}` (namespace `mcs`) — McEliece keygen via libmceliece
-- `slhdsa_ops.{hpp,cpp}` (namespace `mcs`) — SLH-DSA keygen via OpenSSL 3 EVP
-- `mceliece_randombytes.c` — `randombytes_internal_void_voidstar_longlong` for libmceliece (uses getrandom)
-- `yaml_io.{hpp,cpp}` — yaml-cpp YAML emission with literal block scalars
-- `base64.{hpp,cpp}` — Base64 encode/decode
-- `symmetric.hpp` — header-only AES-256-GCM helpers (copy of obi-wan's)
-- `secure_tray.{hpp,cpp}` — `protect`/`unprotect` commands: scrypt KDF + AES-256-GCM per-slot sk encryption
+password-protect/unprotect the secret keys in place. scotty is a thin CLI shell backed entirely
+by `Crystals::crystals` (libcrystals-1.1).
+
+**Source files** (single file after the libcrystals-1.1 migration):
+- `scotty/src/main.cpp` — arg parsing, TTY interaction, password hygiene, file I/O, and
+  CLI handlers `cmd_keygen`, `cmd_protect`, `cmd_unprotect`. All crypto delegated to library.
+
+**Library boundary**: The library (`Crystals::crystals`) owns all crypto and serialisation.
+scotty owns everything that touches a human (arg parsing, TTY password prompts, entropy
+warnings, stdout/stderr) and everything that touches the filesystem.
+
+**Library API used** (all `@api-stable` in `crystals/crystals.hpp`):
+- `make_tray`, `make_public_tray`, `validate_tray_uuid`
+- `emit_tray_yaml`, `load_tray_yaml`
+- `emit_secure_tray_yaml`, `load_secure_tray_yaml`
+- `protect_tray`, `unprotect_tray`
+
+**Link deps**: `Crystals::crystals` (fat static archive; pulls in XKCP, BLAKE3, TBB, yaml-cpp,
+OpenSSL::Crypto transitively) + `OpenSSL::Crypto` directly (for `openssl/ui.h` EVP_read_pw_string
+and `openssl/crypto.h` OPENSSL_cleanse in cmd_protect/cmd_unprotect).
 
 **Output modes**: `keygen` default = YAML stdout; `--out <file>` = YAML to file + auto-summary to stdout;
-`--public` = companion public tray (no sk, alias `<name>.pub`).
+`--public` = companion public tray (no sk, alias `<name>.pub`, **same UUID** as private tray).
 `protect --in <f> --out <f>` = encrypt sk fields → `type: secure-tray` YAML.
 `unprotect --in <f> --out <f>` = decrypt sk fields back to plain `type: tray` YAML.
-
-**scotty fips202 linking strategy**: Both kyber and dilithium need their own `fips202` symbol
-namespace (`pqcrystals_kyber_fips202_ref_*` vs `pqcrystals_dilithium_fips202_ref_*`). This is
-handled cleanly by the static CMake builds: `kyber/ref/CMakeLists.txt` compiles
-`pqcrystals_kyber_fips202_ref` and `dilithium/ref/CMakeLists.txt` compiles
-`pqcrystals_dilithium_fips202_ref` — each with its own `-I` path, producing distinct symbol
-names. No OBJECT libraries or `-rdynamic` required.
 
 ### msgpack Architecture
 `pq/msgpack/src/tray_pack.{hpp,cpp}` is used by obi-wan (compiled in) and the standalone library.
@@ -205,18 +213,20 @@ and the standalone msgpack build**. Do not delete `msgpack-c/`. Compile with `-D
 (no Boost needed).
 
 ### Static Linking Strategy
-Kyber and Dilithium are linked **statically** into both scotty and obi-wan via CMake
-`add_subdirectory`. Each build pulls in 8 static targets: 3 Kyber variants + kyber fips202,
-3 Dilithium variants + dilithium fips202. The two fips202 archives occupy different symbol
-namespaces (`pqcrystals_kyber_fips202_ref_*` vs `pqcrystals_dilithium_fips202_ref_*`) and
-do not collide. There are no shared `.so` files from kyber/ref or dilithium/ref at runtime.
+**obi-wan**: Kyber and Dilithium are linked statically via CMake `add_subdirectory`. Each build
+pulls in 8 static targets: 3 Kyber variants + kyber fips202, 3 Dilithium variants + dilithium
+fips202. The two fips202 archives occupy different symbol namespaces
+(`pqcrystals_kyber_fips202_ref_*` vs `pqcrystals_dilithium_fips202_ref_*`) and do not collide.
+`randombytes()` is compiled directly into obi-wan from `kyber/ref/randombytes.c`.
 
-`randombytes()` is not included in any archive — it is compiled directly into each binary
-from `kyber/ref/randombytes.c`.
+**scotty**: Uses `libcrystals-1.1.a` — a fat static archive (installed at `/usr/local/lib/`) that
+bundles all 8 PQ ref archives + 3 scrypt archives + McEliece + the crystals objects. No separate
+`add_subdirectory` or `kyber/ref` source needed. Link via `Crystals::crystals` CMake target.
 
 ### RPATH Setup
-- **scotty**: RPATH set to the TBB library directory (derived from the `TBB::tbb` imported
-  target location); no kyber/dilithium `.so` paths needed (all statically linked).
+- **scotty**: RPATH set to `{TBB libdir}:/usr/local/lib` — TBB dir derived from the `TBB::tbb`
+  imported target location (baked in by CrystalsConfig.cmake); `/usr/local/lib` covers
+  `libXKCP.so` (installed there by `libcrystals-1.1/install.sh`).
 - **obi-wan**: RPATH set to `XKCP/bin/x86-64/` (for libXKCP.so) and the TBB library dir.
   Install RPATH uses `$ORIGIN/../lib/obi-wan` (relative, for portable installs).
 
@@ -233,11 +243,11 @@ from `kyber/ref/randombytes.c`.
 (Note: Dilithium sk sizes differ from NIST ML-DSA spec; use values from `dilithium/ref/api.h`)
 
 ## CMakeLists.txt Paths
-- scotty: `cmake -S pq/scotty -B pq/scotty/build -DCMAKE_PREFIX_PATH=<Crystals>/local`
-  - `add_subdirectory(../../kyber/ref)` + `add_subdirectory(../../dilithium/ref)` for 8 static targets
-  - `find_package(BLAKE3)` / `find_package(TBB)` resolved via `CMAKE_PREFIX_PATH`
-  - scrypt: 5 `.c` sources compiled directly + 3 pre-built `.a` archives from `../../scrypt/.libs/`
-  - `-DHAVE_CONFIG_H` required by scrypt sources
+- scotty: `cmake -S pq/scotty -B pq/scotty/build` (no CMAKE_PREFIX_PATH needed)
+  - `find_package(Crystals REQUIRED)` — finds from `/usr/local/lib/cmake/crystals`
+  - `find_package(OpenSSL REQUIRED)` — for `openssl/ui.h` + `openssl/crypto.h`
+  - TBB and BLAKE3 resolved transitively inside CrystalsConfig.cmake
+  - RPATH: `CMAKE_BUILD_RPATH` set to TBB libdir + `/usr/local/lib`
 - obi-wan: `cmake -S pq/obi-wan -B pq/obi-wan/build -DCMAKE_PREFIX_PATH=<Crystals>/local`
   - same `add_subdirectory` static targets as scotty; same scrypt setup
   - includes `../msgpack/src`, `../../msgpack-c/include`, `../../XKCP/bin/x86-64/libXKCP.so.headers`
