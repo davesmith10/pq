@@ -1,15 +1,4 @@
-#include "tray_reader.hpp"
-#include "kyber_kem.hpp"
-#include "mceliece_kem.hpp"
-#include "ec_kem.hpp"
-#include "ec_sig.hpp"
-#include "dilithium_sig.hpp"
-#include "slhdsa_sig.hpp"
-#include "kdf.hpp"
-#include "symmetric.hpp"
-#include "armor.hpp"
-#include "hyke_format.hpp"
-#include "pw_crypt.hpp"
+#include <crystals/crystals.hpp>
 
 #include <iostream>
 #include <fstream>
@@ -19,10 +8,6 @@
 #include <cstdlib>
 #include <stdexcept>
 #include <openssl/rand.h>
-
-// Forward declarations for token commands (token_cmd.cpp)
-void cmd_gentok(const std::string& tray_path, const std::string& data_str, int64_t ttl_secs);
-void cmd_valtok(const std::string& tray_path, const std::string& token_file);
 
 // ── Usage ─────────────────────────────────────────────────────────────────────
 
