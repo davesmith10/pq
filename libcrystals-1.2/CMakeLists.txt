@@ -144,3 +144,9 @@ add_executable(api_stability_test_11
 )
 target_link_libraries(api_stability_test_11 PRIVATE crystals)
 target_compile_options(api_stability_test_11 PRIVATE -O2 -Wall -Wextra)
+
+add_executable(api_stability_test_12
+    test/api_stability_test-1.2.cpp
+)
+target_link_libraries(api_stability_test_12 PRIVATE crystals)
+target_compile_options(api_stability_test_12 PRIVATE -O2 -Wall -Wextra)

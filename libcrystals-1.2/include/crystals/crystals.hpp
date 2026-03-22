@@ -35,7 +35,11 @@ enum class TrayType {
     // crystals group (Kyber + Dilithium)   @api-stable v1.0
     Level0, Level1, Level2_25519, Level2, Level3, Level5,
     // mceliece+slhdsa group               @api-stable v1.0, @api-stable v1.1
-    McEliece_Level1, McEliece_Level2, McEliece_Level3, McEliece_Level4, McEliece_Level5
+    McEliece_Level1, McEliece_Level2, McEliece_Level3, McEliece_Level4, McEliece_Level5,
+    // mlkem+mldsa group (ML-KEM + ML-DSA) @api-candidate-1.2
+    MlKem_Level1, MlKem_Level2, MlKem_Level3, MlKem_Level4,
+    // frodokem+falcon group               @api-candidate-1.2
+    FrodoFalcon_Level1, FrodoFalcon_Level2, FrodoFalcon_Level3, FrodoFalcon_Level4
 };
 
 struct Slot {                          // @api-stable v1.0
@@ -128,6 +132,66 @@ bool verify(const std::string& alg_name,
             const std::vector<uint8_t>& sig);      // @api-stable v1.1
 
 } // namespace slhdsa_sig
+
+// ── oqs_kem namespace: liboqs KEM operations ─────────────────────────────────
+
+namespace oqs_kem {  // @api-candidate-1.2
+
+struct Keys {                          // @api-candidate-1.2
+    std::vector<uint8_t> pk;
+    std::vector<uint8_t> sk;
+};
+
+// Generate a keypair for the named algorithm (e.g. "ML-KEM-512", "FrodoKEM-640-AES").
+// Throws std::runtime_error if alg_name is unknown or liboqs returns an error.
+Keys keygen(const std::string& alg_name);  // @api-candidate-1.2
+
+// Encapsulate against pk; fills ct_out and ss_out.
+void encaps(const std::string& alg_name,
+            const std::vector<uint8_t>& pk,
+            std::vector<uint8_t>& ct_out,
+            std::vector<uint8_t>& ss_out);  // @api-candidate-1.2
+
+// Decapsulate ct with sk; fills ss_out.
+void decaps(const std::string& alg_name,
+            const std::vector<uint8_t>& sk,
+            const std::vector<uint8_t>& ct,
+            std::vector<uint8_t>& ss_out);  // @api-candidate-1.2
+
+} // namespace oqs_kem
+
+// ── oqs_sig namespace: liboqs signature operations ───────────────────────────
+
+namespace oqs_sig {  // @api-candidate-1.2
+
+struct Keys {                          // @api-candidate-1.2
+    std::vector<uint8_t> pk;
+    std::vector<uint8_t> sk;
+};
+
+// Generate a keypair for the named algorithm (e.g. "ML-DSA-44", "Falcon-512").
+// Throws std::runtime_error if alg_name is unknown or liboqs returns an error.
+Keys keygen(const std::string& alg_name);  // @api-candidate-1.2
+
+// Returns true if alg_name is handled by this namespace (ML-DSA-* or Falcon-*).
+bool is_oqs_sig(const std::string& alg_name);  // @api-candidate-1.2
+
+// Maximum signature size in bytes for the given algorithm.
+size_t sig_bytes(const std::string& alg_name);  // @api-candidate-1.2
+
+// Sign msg with sk; fills sig_out.
+void sign(const std::string& alg_name,
+          const std::vector<uint8_t>& sk,
+          const std::vector<uint8_t>& msg,
+          std::vector<uint8_t>& sig_out);  // @api-candidate-1.2
+
+// Verify sig against pk and msg. Returns true if valid.
+bool verify(const std::string& alg_name,
+            const std::vector<uint8_t>& pk,
+            const std::vector<uint8_t>& msg,
+            const std::vector<uint8_t>& sig);  // @api-candidate-1.2
+
+} // namespace oqs_sig
 
 // ── Secure tray (protect / unprotect) ─────────────────────────────────────────
 
