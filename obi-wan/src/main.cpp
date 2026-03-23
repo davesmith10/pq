@@ -70,10 +70,12 @@ static const Slot* find_classical_slot(const Tray& tray) {
     return nullptr;
 }
 
-// Find the first PQ KEM slot (Kyber* or mceliece*)
+// Find the first PQ KEM slot (Kyber*, mceliece*, ML-KEM-*, FrodoKEM-*)
 static const Slot* find_pq_slot(const Tray& tray) {
     for (const auto& s : tray.slots) {
-        if (s.alg_name.substr(0, 5) == "Kyber" || s.alg_name.substr(0, 8) == "mceliece")
+        if (s.alg_name.substr(0, 5) == "Kyber" ||
+            s.alg_name.substr(0, 8) == "mceliece" ||
+            oqs_kem::is_oqs_kem(s.alg_name))
             return &s;
     }
     return nullptr;
@@ -88,10 +90,12 @@ static const Slot* find_classical_sig_slot(const Tray& tray) {
     return nullptr;
 }
 
-// Find the first PQ signature slot (Dilithium* or SLH-DSA*)
+// Find the first PQ signature slot (Dilithium*, SLH-DSA-*, ML-DSA-*, Falcon-*)
 static const Slot* find_pq_sig_slot(const Tray& tray) {
     for (const auto& s : tray.slots) {
-        if (dilithium_sig::is_pq_sig(s.alg_name) || slhdsa_sig::is_slhdsa_sig(s.alg_name))
+        if (dilithium_sig::is_pq_sig(s.alg_name) ||
+            slhdsa_sig::is_slhdsa_sig(s.alg_name) ||
+            oqs_sig::is_oqs_sig(s.alg_name))
             return &s;
     }
     return nullptr;
@@ -144,6 +148,8 @@ static int cmd_encrypt(const std::string& tray_path,
     try {
         if (pq_slot->alg_name.substr(0, 5) == "Kyber") {
             kyber_kem::encaps(kyber_kem::level_from_alg(pq_slot->alg_name), pq_slot->pk, ct_pq, ss_pq);
+        } else if (oqs_kem::is_oqs_kem(pq_slot->alg_name)) {
+            oqs_kem::encaps(pq_slot->alg_name, pq_slot->pk, ct_pq, ss_pq);
         } else {
             mceliece_kem::encaps(pq_slot->alg_name, pq_slot->pk, ct_pq, ss_pq);
         }
@@ -246,6 +252,8 @@ static int cmd_decrypt(const std::string& tray_path,
     try {
         if (pq_slot->alg_name.substr(0, 5) == "Kyber") {
             kyber_kem::decaps(kyber_kem::level_from_alg(pq_slot->alg_name), pq_slot->sk, hdr.ct_pq, ss_pq);
+        } else if (oqs_kem::is_oqs_kem(pq_slot->alg_name)) {
+            oqs_kem::decaps(pq_slot->alg_name, pq_slot->sk, hdr.ct_pq, ss_pq);
         } else {
             mceliece_kem::decaps(pq_slot->alg_name, pq_slot->sk, hdr.ct_pq, ss_pq);
         }
@@ -334,6 +342,8 @@ static int cmd_sign(const std::string& tray_path,
     try {
         if (pq_kem->alg_name.substr(0, 5) == "Kyber") {
             kyber_kem::encaps(kyber_kem::level_from_alg(pq_kem->alg_name), pq_kem->pk, ct_pq, ss_pq);
+        } else if (oqs_kem::is_oqs_kem(pq_kem->alg_name)) {
+            oqs_kem::encaps(pq_kem->alg_name, pq_kem->pk, ct_pq, ss_pq);
         } else {
             mceliece_kem::encaps(pq_kem->alg_name, pq_kem->pk, ct_pq, ss_pq);
         }
@@ -388,6 +398,8 @@ static int cmd_sign(const std::string& tray_path,
         if (dilithium_sig::is_pq_sig(pq_sig->alg_name)) {
             int mode = dilithium_sig::mode_from_alg(pq_sig->alg_name);
             sig_pq_size = (uint32_t)dilithium_sig::sig_bytes_for_mode(mode);
+        } else if (oqs_sig::is_oqs_sig(pq_sig->alg_name)) {
+            sig_pq_size = (uint32_t)oqs_sig::sig_bytes(pq_sig->alg_name);
         } else {
             sig_pq_size = (uint32_t)slhdsa_sig::sig_bytes(pq_sig->alg_name);
         }
@@ -431,6 +443,8 @@ static int cmd_sign(const std::string& tray_path,
         if (dilithium_sig::is_pq_sig(pq_sig->alg_name)) {
             dilithium_sig::sign(dilithium_sig::mode_from_alg(pq_sig->alg_name),
                                 pq_sig->sk, m_to_sign, hdr.sig_pq);
+        } else if (oqs_sig::is_oqs_sig(pq_sig->alg_name)) {
+            oqs_sig::sign(pq_sig->alg_name, pq_sig->sk, m_to_sign, hdr.sig_pq);
         } else {
             slhdsa_sig::sign(pq_sig->alg_name, pq_sig->sk, m_to_sign, hdr.sig_pq);
         }
@@ -538,6 +552,8 @@ static int cmd_verify(const std::string& tray_path,
         if (dilithium_sig::is_pq_sig(pq_sig->alg_name)) {
             pq_ok = dilithium_sig::verify(dilithium_sig::mode_from_alg(pq_sig->alg_name),
                                           pq_sig->pk, m_to_sign, hdr.sig_pq);
+        } else if (oqs_sig::is_oqs_sig(pq_sig->alg_name)) {
+            pq_ok = oqs_sig::verify(pq_sig->alg_name, pq_sig->pk, m_to_sign, hdr.sig_pq);
         } else {
             pq_ok = slhdsa_sig::verify(pq_sig->alg_name, pq_sig->pk, m_to_sign, hdr.sig_pq);
         }
@@ -564,6 +580,8 @@ static int cmd_verify(const std::string& tray_path,
     try {
         if (pq_kem->alg_name.substr(0, 5) == "Kyber") {
             kyber_kem::decaps(kyber_kem::level_from_alg(pq_kem->alg_name), pq_kem->sk, hdr.ct_pq, ss_pq);
+        } else if (oqs_kem::is_oqs_kem(pq_kem->alg_name)) {
+            oqs_kem::decaps(pq_kem->alg_name, pq_kem->sk, hdr.ct_pq, ss_pq);
         } else {
             mceliece_kem::decaps(pq_kem->alg_name, pq_kem->sk, hdr.ct_pq, ss_pq);
         }
