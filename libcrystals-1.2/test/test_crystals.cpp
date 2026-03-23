@@ -787,6 +787,7 @@ static void test_oqs_groups() {
         { std::ofstream f(path); f << yaml; }
         Tray loaded = load_tray(path);
         CHECK(loaded.id == orig.id);
+        CHECK(loaded.alias == orig.alias);
         CHECK(loaded.profile_group == "mlkem+mldsa");
         CHECK(loaded.slots.size() == 4);
         for (size_t i = 0; i < 4; ++i) {
@@ -807,8 +808,11 @@ static void test_oqs_groups() {
         Tray recovered = unprotect_tray(st, pw, std::strlen(pw));
         CHECK(recovered.id == tray.id);
         CHECK(recovered.slots.size() == tray.slots.size());
-        for (size_t i = 0; i < tray.slots.size(); ++i)
+        for (size_t i = 0; i < tray.slots.size(); ++i) {
+            CHECK(recovered.slots[i].alg_name == tray.slots[i].alg_name);
+            CHECK(recovered.slots[i].pk == tray.slots[i].pk);
             CHECK(recovered.slots[i].sk == tray.slots[i].sk);
+        }
         std::printf("  frodokem+falcon protect/unprotect: OK\n");
     }
 }
