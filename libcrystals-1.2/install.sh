@@ -83,10 +83,25 @@ extract_archive() {
     name="$(basename "${archive}" .a)"
     local subdir="${WORK_DIR}/_ext_${name}"
     mkdir -p "${subdir}"
-    (cd "${subdir}" && ar x "${archive}")
-    find "${subdir}" -name "*.o" | while read -r obj; do
-        mv "${obj}" "${WORK_DIR}/${name}__$(basename "${obj}")"
-    done
+
+    # Use ar xN to extract each member by occurrence index, handling archives
+    # that contain multiple members with the same filename (e.g. liboqs.a which
+    # bundles objects from multiple algorithm implementations).
+    declare -A _seen=()
+    local _idx=0
+    while IFS= read -r member; do
+        local _base
+        _base="$(basename "${member}")"
+        local _n=$(( ${_seen["${_base}"]:-0} + 1 ))
+        _seen["${_base}"]=${_n}
+        (cd "${subdir}" && ar xN "${_n}" "${archive}" "${member}" 2>/dev/null) || true
+        if [[ -f "${subdir}/${_base}" ]]; then
+            mv "${subdir}/${_base}" \
+               "${WORK_DIR}/${name}__$(printf '%06d' ${_idx})__${_base}"
+        fi
+        _idx=$(( _idx + 1 ))
+    done < <(ar t "${archive}")
+
     rm -rf "${subdir}"
 }
 
