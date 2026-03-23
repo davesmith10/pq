@@ -302,7 +302,7 @@ Tray make_tray(TrayType t, const std::string& alias)
             tray.slots.push_back(make_ec_slot("P-384",       ec::Algorithm::P384));
             tray.slots.push_back(make_oqs_kem_slot("FrodoKEM-976-AES"));
             tray.slots.push_back(make_ec_slot("ECDSA P-384", ec::Algorithm::P384));
-            tray.slots.push_back(make_oqs_sig_slot("Falcon-512"));
+            tray.slots.push_back(make_oqs_sig_slot("Falcon-512")); // Falcon-512 at level3 is intentional per spec (FrodoKEM-976-AES + Falcon-512 NIST L1/L3 hybrid)
             break;
 
         case TrayType::FrodoFalcon_Level4:
