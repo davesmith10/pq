@@ -1,8 +1,4 @@
-#include <crystals/tray.hpp>
-#include <crystals/tray_reader.hpp>
-#include <crystals/tray_pack.hpp>
-#include <crystals/yaml_io.hpp>
-#include <crystals/base64.hpp>
+#include <crystals/crystals.hpp>
 #include "lodepng.h"
 #include "bitmap_font.hpp"
 #include "encaps_crypto.hpp"
@@ -75,8 +71,12 @@ struct ImageResult {
 };
 
 static bool is_pq_slot(const std::string& alg_name) {
-    return alg_name.rfind("Kyber", 0) == 0 ||
-           alg_name.rfind("Dilithium", 0) == 0;
+    return alg_name.rfind("Kyber",     0) == 0 ||
+           alg_name.rfind("Dilithium", 0) == 0 ||
+           alg_name.rfind("ML-KEM-",   0) == 0 ||
+           alg_name.rfind("ML-DSA-",   0) == 0 ||
+           alg_name.rfind("FrodoKEM-", 0) == 0 ||
+           alg_name.rfind("Falcon-",   0) == 0;
 }
 
 // row_count for arbitrary column width
@@ -206,6 +206,50 @@ static const std::map<std::string, std::vector<SlotDef>> PROFILES = {
         {"Kyber1024",  1568, 3168},
         {"ECDSA P-521", 133, 66},
         {"Dilithium5", 2592, 4896},
+    }},
+    {"mk-level1", {
+        {"ML-KEM-512",   800,  1632},
+        {"ML-DSA-44",    1312, 2560},
+    }},
+    {"mk-level2", {
+        {"P-256",        65,   32},
+        {"ML-KEM-512",   800,  1632},
+        {"ECDSA P-256",  65,   32},
+        {"ML-DSA-44",    1312, 2560},
+    }},
+    {"mk-level3", {
+        {"P-384",        97,   48},
+        {"ML-KEM-768",   1184, 2400},
+        {"ECDSA P-384",  97,   48},
+        {"ML-DSA-65",    1952, 4032},
+    }},
+    {"mk-level4", {
+        {"P-521",        133,  66},
+        {"ML-KEM-1024",  1568, 3168},
+        {"ECDSA P-521",  133,  66},
+        {"ML-DSA-87",    2592, 4896},
+    }},
+    {"ff-level1", {
+        {"FrodoKEM-640-AES",  9616,  19888},
+        {"Falcon-512",        897,   1281},
+    }},
+    {"ff-level2", {
+        {"P-256",             65,    32},
+        {"FrodoKEM-640-AES",  9616,  19888},
+        {"ECDSA P-256",       65,    32},
+        {"Falcon-512",        897,   1281},
+    }},
+    {"ff-level3", {
+        {"P-384",             97,    48},
+        {"FrodoKEM-976-AES",  15632, 31296},
+        {"ECDSA P-384",       97,    48},
+        {"Falcon-512",        897,   1281},
+    }},
+    {"ff-level4", {
+        {"P-521",             133,   66},
+        {"FrodoKEM-1344-AES", 21520, 43088},
+        {"ECDSA P-521",       133,   66},
+        {"Falcon-1024",       1793,  2305},
     }},
 };
 
@@ -549,6 +593,14 @@ static std::string hyke_level_str(const std::vector<uint8_t>& wire) {
         case 0x02: return "level2";
         case 0x03: return "level3";
         case 0x04: return "level5";
+        case 0x11: return "mk-level1";
+        case 0x12: return "mk-level2";
+        case 0x13: return "mk-level3";
+        case 0x14: return "mk-level4";
+        case 0x21: return "ff-level1";
+        case 0x22: return "ff-level2";
+        case 0x23: return "ff-level3";
+        case 0x24: return "ff-level4";
         default:   return "unknown";
     }
 }
@@ -1247,7 +1299,9 @@ static int cmd_tray_decaps(int argc, char* argv[]) {
     tray.alias         = meta.alias;
     tray.id            = meta.id;
     tray.type_str      = meta.profile;
-    tray.profile_group = "crystals";
+    if      (meta.profile.rfind("mk-", 0) == 0) tray.profile_group = "mlkem+mldsa";
+    else if (meta.profile.rfind("ff-", 0) == 0) tray.profile_group = "frodokem+falcon";
+    else                                         tray.profile_group = "crystals";
     tray.created       = meta.created;
     tray.expires       = meta.expires;
 
@@ -1257,6 +1311,14 @@ static int cmd_tray_decaps(int argc, char* argv[]) {
     else if (meta.profile == "level2")       tray.tray_type = TrayType::Level2;
     else if (meta.profile == "level3")       tray.tray_type = TrayType::Level3;
     else if (meta.profile == "level5")       tray.tray_type = TrayType::Level5;
+    else if (meta.profile == "mk-level1")    tray.tray_type = TrayType::MlKem_Level1;
+    else if (meta.profile == "mk-level2")    tray.tray_type = TrayType::MlKem_Level2;
+    else if (meta.profile == "mk-level3")    tray.tray_type = TrayType::MlKem_Level3;
+    else if (meta.profile == "mk-level4")    tray.tray_type = TrayType::MlKem_Level4;
+    else if (meta.profile == "ff-level1")    tray.tray_type = TrayType::FrodoFalcon_Level1;
+    else if (meta.profile == "ff-level2")    tray.tray_type = TrayType::FrodoFalcon_Level2;
+    else if (meta.profile == "ff-level3")    tray.tray_type = TrayType::FrodoFalcon_Level3;
+    else if (meta.profile == "ff-level4")    tray.tray_type = TrayType::FrodoFalcon_Level4;
 
     size_t cl_pk_off = 0, cl_sk_off2 = 0, pq_pk_off = 0, pq_sk_off2 = 0;
     for (const auto& sd : slot_defs) {

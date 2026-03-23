@@ -2,7 +2,7 @@
 // Scrypt KDF wrapper for padme encaps/decaps.
 // AES-256-GCM helpers re-use the same symmetric.hpp used by obi-wan.
 
-#include <crystals/symmetric.hpp>   // aes256gcm_encrypt_aad / _decrypt_aad
+#include <crystals/crystals.hpp>    // aes256gcm_encrypt_aad / _decrypt_aad
 
 #include <openssl/evp.h>
 #include <openssl/rand.h>
