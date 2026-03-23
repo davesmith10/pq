@@ -71,6 +71,7 @@ add_library(crystals STATIC
     src/slhdsa_ops.cpp
     src/mceliece_kem.cpp
     src/slhdsa_sig.cpp
+    src/oqs_ops.cpp
     src/mceliece_randombytes.c
     src/token_cmd.cpp
     "${KYBER_REF_DIR_ABS}/randombytes.c"
@@ -116,6 +117,7 @@ target_link_libraries(crystals PUBLIC
     "${SCRYPT_DIR_ABS}/.libs/libcperciva_cpusupport_detect.a"
     "${SCRYPT_DIR_ABS}/.libs/libcperciva_shani.a"
     /usr/local/lib/libmceliece.a
+    /usr/local/lib64/liboqs.a
     BLAKE3::blake3
     TBB::tbb
     OpenSSL::Crypto
