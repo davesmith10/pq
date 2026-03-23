@@ -803,7 +803,7 @@ static void test_oqs_groups() {
         Tray tray = make_tray(TrayType::FrodoFalcon_Level2, "dave");
         const char* pw = "hunter2hunter2hunter2";
         SecureTray st = protect_tray(tray, pw, std::strlen(pw));
-        CHECK(st.type_str == "secure-tray");
+        CHECK(st.type_str == "ff-level2");
 
         Tray recovered = unprotect_tray(st, pw, std::strlen(pw));
         CHECK(recovered.id == tray.id);
