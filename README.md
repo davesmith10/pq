@@ -47,6 +47,24 @@ Default group: `crystals`. Default profile: `level2-25519`.
 | `level4`| P-521       | mceliece6960119f  | ECDSA P-521  | SLH-DSA-SHA2-256f    |
 | `level5`| P-256       | mceliece8192128f  | ECDSA P-256  | SLH-DSA-SHAKE-256f   |
 
+**`--group mlkem+mldsa` profiles** (hybrid ML-KEM + ML-DSA, NIST FIPS 203/204):
+
+| Profile    | KEM-classic | KEM-PQ       | Sig-classic  | Sig-PQ     |
+|------------|-------------|--------------|--------------|------------|
+| `mk-level1`| —           | ML-KEM-512   | —            | ML-DSA-44  |
+| `mk-level2`| P-256       | ML-KEM-512   | ECDSA P-256  | ML-DSA-44  |
+| `mk-level3`| P-384       | ML-KEM-768   | ECDSA P-384  | ML-DSA-65  |
+| `mk-level4`| P-521       | ML-KEM-1024  | ECDSA P-521  | ML-DSA-87  |
+
+**`--group frodokem+falcon` profiles** (hybrid FrodoKEM + Falcon):
+
+| Profile    | KEM-classic | KEM-PQ              | Sig-classic  | Sig-PQ       |
+|------------|-------------|---------------------|--------------|--------------|
+| `ff-level1`| —           | FrodoKEM-640-AES    | —            | Falcon-512   |
+| `ff-level2`| P-256       | FrodoKEM-640-AES    | ECDSA P-256  | Falcon-512   |
+| `ff-level3`| P-384       | FrodoKEM-976-AES    | ECDSA P-384  | Falcon-512   |
+| `ff-level4`| P-521       | FrodoKEM-1344-AES   | ECDSA P-521  | Falcon-1024  |
+
 **Output modes:**
 - Default (no flags): YAML with literal block scalar base64 to stdout
 - `--out <file>`: write YAML to `<file>`; auto-prints a human-readable summary to stdout
@@ -56,6 +74,28 @@ Default group: `crystals`. Default profile: `level2-25519`.
 
 Encrypts and authenticates arbitrary files using a scotty tray. Two operation
 modes — **OBIWAN** (encrypt-only) and **HYKE** (encrypt-and-sign).
+
+#### Tray compatibility
+
+`encrypt/decrypt` requires at least one classical KEM slot and one PQ KEM slot.
+`sign/verify` additionally requires both signature slots. PQ-only trays (level1,
+mk-level1, ff-level1, mceliece+slhdsa level1) are missing the classical slots and
+cannot be used with obi-wan.
+
+| Group            | Profiles          | encrypt/decrypt | sign/verify |
+|------------------|-------------------|:---------------:|:-----------:|
+| crystals         | level2-25519, level2, level3, level5 | ✓ | ✓ |
+| crystals         | level0 (classical only)              | ✗ | ✗ |
+| crystals         | level1 (PQ only)                     | ✗ | ✗ |
+| mceliece+slhdsa  | level2, level3, level4, level5       | ✓ | ✓ |
+| mceliece+slhdsa  | level1 (PQ only)                     | ✗ | ✗ |
+| mlkem+mldsa      | mk-level2, mk-level3, mk-level4      | ✓ | ✓ |
+| mlkem+mldsa      | mk-level1 (PQ only)                  | ✗ | ✗ |
+| frodokem+falcon  | ff-level2, ff-level3, ff-level4      | ✓ | ✓ |
+| frodokem+falcon  | ff-level1 (PQ only)                  | ✗ | ✗ |
+
+`gentok`/`valtok` requires an ECDSA P-256 slot specifically: crystals `level2`,
+or mceliece+slhdsa `level2`/`level5`.
 
 #### encrypt / decrypt (OBIWAN)
 
@@ -114,7 +154,7 @@ obi-wan verify --tray <file> <target-file>
 
 - `sign` requires a tray with all 4 slots including the signing secret keys
 - `verify` requires a tray with all 4 slots including the KEM secret keys
-- Both classical (Ed25519 / ECDSA) and PQ (Dilithium) signatures are verified before decryption
+- Both classical (Ed25519 / ECDSA) and PQ (Dilithium / ML-DSA / Falcon) signatures are verified before decryption
 
 Output armor: `-----BEGIN/END HYKE SIGNED FILE-----`
 
@@ -169,24 +209,24 @@ file size across all tray types.
 
 **Prerequisites (all tools)**: CMake ≥ 3.15, GCC/Clang with C++17, OpenSSL 3.
 
-**Additional prerequisites for scotty**: `libcrystals-1.1` installed to `/usr/local` via
-`sudo bash pq/libcrystals-1.1/install.sh`. This installs the fat static archive, XKCP shared
+**Additional prerequisites for scotty**: `libcrystals-1.2` installed to `/usr/local` via
+`sudo bash pq/libcrystals-1.2/install.sh`. This installs the fat static archive, XKCP shared
 library, and CMake package config. BLAKE3 and oneTBB must be in `Crystals/local/` first;
 see `pq/BLAKE3-BUILD.md` for the one-time build procedure.
 
-**Additional prerequisites for obi-wan**: `libcrystals-1.1` installed to `/usr/local` via
-`sudo bash pq/libcrystals-1.1/install.sh` (same as scotty). All crypto deps — Kyber,
-Dilithium, McEliece, SLH-DSA, scrypt, BLAKE3, oneTBB, XKCP, yaml-cpp — are bundled
-inside the fat static archive.
+**Additional prerequisites for obi-wan**: `libcrystals-1.2` installed to `/usr/local` via
+`sudo bash pq/libcrystals-1.2/install.sh` (same as scotty). All crypto deps — Kyber,
+Dilithium, ML-KEM, ML-DSA, FrodoKEM, Falcon, McEliece, SLH-DSA, scrypt, BLAKE3, oneTBB,
+XKCP, yaml-cpp — are bundled inside the fat static archive.
 
 **Build individual tools** (from the `Crystals/` root):
 
 ```bash
-# scotty — no CMAKE_PREFIX_PATH needed; uses libcrystals-1.1 from /usr/local
+# scotty — no CMAKE_PREFIX_PATH needed; uses libcrystals-1.2 from /usr/local
 cmake -S pq/scotty  -B pq/scotty/build
 cmake --build pq/scotty/build -j$(nproc)
 
-# obi-wan — no CMAKE_PREFIX_PATH needed; uses libcrystals-1.1 from /usr/local
+# obi-wan — no CMAKE_PREFIX_PATH needed; uses libcrystals-1.2 from /usr/local
 cmake -S pq/obi-wan -B pq/obi-wan/build
 cmake --build pq/obi-wan/build -j$(nproc)
 
@@ -223,15 +263,15 @@ Crystals/
 ├── dilithium/ref/      — Dilithium reference C source; statically compiled via CMake
 ├── dilithium/avx2/     — Dilithium AVX2 source (not used by the CMake tools)
 ├── msgpack-c/          — msgpack-c header-only library (vendored)
-├── XKCP/               — eXtended Keccak Code Package; pre-built libXKCP.so (bundled by libcrystals-1.1)
+├── XKCP/               — eXtended Keccak Code Package; pre-built libXKCP.so (bundled by libcrystals-1.2)
 ├── BLAKE3/             — BLAKE3 source; built + installed to local/ (UUID derivation)
 ├── oneTBB/             — oneTBB source; built + installed to local/ (BLAKE3 parallelism)
 ├── local/              — Shared install prefix for BLAKE3 + TBB (CMake finds them here)
 └── pq/                 — Main project (git root)
     ├── include/        — Shared headers (tray.hpp domain model)
-    ├── scotty/         — Hybrid PQ+classical tray keygen tool (uses libcrystals-1.1)
+    ├── scotty/         — Hybrid PQ+classical tray keygen tool (uses libcrystals-1.2)
     ├── obi-wan/        — Hybrid KEM file encryption tool
-    ├── libcrystals-1.1/ — Consolidated crypto library; installed to /usr/local via install.sh
+    ├── libcrystals-1.2/ — Consolidated crypto library; installed to /usr/local via install.sh
     ├── msgpack/        — Tray binary encoding library + tests
     ├── misc/           — Utilities (hashpass, etc.)
     └── static-verify/  — Standalone project verifying the static Kyber + Dilithium CMake
