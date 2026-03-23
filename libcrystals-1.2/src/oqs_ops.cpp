@@ -74,6 +74,12 @@ void decaps(const std::string& alg_name,
     OQS_KEM_free(kem);
 }
 
+bool is_oqs_kem(const std::string& alg_name) {
+    if (alg_name.rfind("ML-KEM-", 0) == 0) return true;
+    if (alg_name.rfind("FrodoKEM-", 0) == 0) return true;
+    return false;
+}
+
 } // namespace oqs_kem
 
 namespace oqs_sig {

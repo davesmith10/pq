@@ -158,6 +158,9 @@ void decaps(const std::string& alg_name,
             const std::vector<uint8_t>& ct,
             std::vector<uint8_t>& ss_out);  // @api-candidate-1.2
 
+// Returns true if alg_name is handled by this namespace (ML-KEM-* or FrodoKEM-*).
+bool is_oqs_kem(const std::string& alg_name);  // @api-candidate-1.2
+
 } // namespace oqs_kem
 
 // ── oqs_sig namespace: liboqs signature operations ───────────────────────────
@@ -276,10 +279,18 @@ static constexpr char kHykeArmorEnd[]   = "-----END HYKE SIGNED FILE-----";
 // TrayID mapping
 inline uint8_t tray_id_byte(TrayType t) {                    // @api-stable v1.0
     switch (t) {
-        case TrayType::Level2_25519: return 0x01;
-        case TrayType::Level2:       return 0x02;
-        case TrayType::Level3:       return 0x03;
-        case TrayType::Level5:       return 0x04;
+        case TrayType::Level2_25519:       return 0x01;
+        case TrayType::Level2:             return 0x02;
+        case TrayType::Level3:             return 0x03;
+        case TrayType::Level5:             return 0x04;
+        case TrayType::MlKem_Level1:       return 0x11;
+        case TrayType::MlKem_Level2:       return 0x12;
+        case TrayType::MlKem_Level3:       return 0x13;
+        case TrayType::MlKem_Level4:       return 0x14;
+        case TrayType::FrodoFalcon_Level1: return 0x21;
+        case TrayType::FrodoFalcon_Level2: return 0x22;
+        case TrayType::FrodoFalcon_Level3: return 0x23;
+        case TrayType::FrodoFalcon_Level4: return 0x24;
         default: throw std::invalid_argument("Unknown TrayType");
     }
 }
@@ -290,6 +301,14 @@ inline TrayType tray_type_from_id(uint8_t id) {             // @api-stable v1.0
         case 0x02: return TrayType::Level2;
         case 0x03: return TrayType::Level3;
         case 0x04: return TrayType::Level5;
+        case 0x11: return TrayType::MlKem_Level1;
+        case 0x12: return TrayType::MlKem_Level2;
+        case 0x13: return TrayType::MlKem_Level3;
+        case 0x14: return TrayType::MlKem_Level4;
+        case 0x21: return TrayType::FrodoFalcon_Level1;
+        case 0x22: return TrayType::FrodoFalcon_Level2;
+        case 0x23: return TrayType::FrodoFalcon_Level3;
+        case 0x24: return TrayType::FrodoFalcon_Level4;
         default: throw std::runtime_error("Unknown HYKE TrayID: " + std::to_string((int)id));
     }
 }
