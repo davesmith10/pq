@@ -15,7 +15,7 @@ static void print_usage(const char* prog) {
     std::cerr <<
         "Usage: " << prog << " keygen\n"
         "              --alias <name>\n"
-        "              [--group crystals|mceliece+slhdsa]\n"
+        "              [--group crystals|mceliece+slhdsa|mlkem+mldsa|frodokem+falcon]\n"
         "              [--profile <level>]\n"
         "              [--out <file>]\n"
         "              [--public]\n"
@@ -47,6 +47,18 @@ static void print_usage(const char* prog) {
         "  level3       P-384 + mceliece6688128f + ECDSA P-384 + SLH-DSA-SHAKE-192f\n"
         "  level4       P-521 + mceliece6960119f + ECDSA P-521 + SLH-DSA-SHA2-256f\n"
         "  level5       P-256 + mceliece8192128f + ECDSA P-256 + SLH-DSA-SHAKE-256f\n"
+        "\n"
+        "ML-KEM+ML-DSA group profiles (--group mlkem+mldsa):\n"
+        "  level1       ML-KEM-512 + ML-DSA-44                            (PQ-only)\n"
+        "  level2       P-256 + ML-KEM-512 + ECDSA P-256 + ML-DSA-44     (default)\n"
+        "  level3       P-384 + ML-KEM-768 + ECDSA P-384 + ML-DSA-65\n"
+        "  level4       P-521 + ML-KEM-1024 + ECDSA P-521 + ML-DSA-87\n"
+        "\n"
+        "FrodoKEM+Falcon group profiles (--group frodokem+falcon):\n"
+        "  level1       FrodoKEM-640-AES + Falcon-512                        (PQ-only)\n"
+        "  level2       P-256 + FrodoKEM-640-AES + ECDSA P-256 + Falcon-512  (default)\n"
+        "  level3       P-384 + FrodoKEM-976-AES + ECDSA P-384 + Falcon-512\n"
+        "  level4       P-521 + FrodoKEM-1344-AES + ECDSA P-521 + Falcon-1024\n"
         "\n"
         "Output (no --out): YAML to stdout. With --out: YAML to file + summary to stdout.\n"
         "With --public: companion public tray (alias <name>.pub) also emitted.\n";
@@ -213,14 +225,18 @@ static int cmd_keygen(int argc, char* argv[]) {
         return 1;
     }
 
-    if (group_str != "crystals" && group_str != "mceliece+slhdsa") {
+    if (group_str != "crystals" && group_str != "mceliece+slhdsa" &&
+        group_str != "mlkem+mldsa" && group_str != "frodokem+falcon") {
         std::cerr << "Error: unknown group '" << group_str
-                  << "' (must be crystals or mceliece+slhdsa)\n";
+                  << "' (must be crystals, mceliece+slhdsa, mlkem+mldsa, or frodokem+falcon)\n";
         return 1;
     }
 
     if (tray_str.empty()) {
-        tray_str = (group_str == "mceliece+slhdsa") ? "level2" : "level2-25519";
+        if (group_str == "crystals")
+            tray_str = "level2-25519";
+        else
+            tray_str = "level2";  // default for mceliece+slhdsa, mlkem+mldsa, frodokem+falcon
     }
 
     TrayType ttype;
@@ -237,7 +253,7 @@ static int cmd_keygen(int argc, char* argv[]) {
                          " (must be level0, level1, level2-25519, level2, level3, or level5)\n";
             return 1;
         }
-    } else {
+    } else if (group_str == "mceliece+slhdsa") {
         if      (tray_str == "level1") ttype = TrayType::McEliece_Level1;
         else if (tray_str == "level2") ttype = TrayType::McEliece_Level2;
         else if (tray_str == "level3") ttype = TrayType::McEliece_Level3;
@@ -247,6 +263,29 @@ static int cmd_keygen(int argc, char* argv[]) {
             std::cerr << "Error: unknown profile '" << tray_str
                       << "' for group mceliece+slhdsa"
                          " (must be level1, level2, level3, level4, or level5)\n";
+            return 1;
+        }
+    } else if (group_str == "mlkem+mldsa") {
+        if      (tray_str == "level1") ttype = TrayType::MlKem_Level1;
+        else if (tray_str == "level2") ttype = TrayType::MlKem_Level2;
+        else if (tray_str == "level3") ttype = TrayType::MlKem_Level3;
+        else if (tray_str == "level4") ttype = TrayType::MlKem_Level4;
+        else {
+            std::cerr << "Error: unknown profile '" << tray_str
+                      << "' for group mlkem+mldsa"
+                         " (must be level1, level2, level3, or level4)\n";
+            return 1;
+        }
+    } else {
+        // frodokem+falcon
+        if      (tray_str == "level1") ttype = TrayType::FrodoFalcon_Level1;
+        else if (tray_str == "level2") ttype = TrayType::FrodoFalcon_Level2;
+        else if (tray_str == "level3") ttype = TrayType::FrodoFalcon_Level3;
+        else if (tray_str == "level4") ttype = TrayType::FrodoFalcon_Level4;
+        else {
+            std::cerr << "Error: unknown profile '" << tray_str
+                      << "' for group frodokem+falcon"
+                         " (must be level1, level2, level3, or level4)\n";
             return 1;
         }
     }
