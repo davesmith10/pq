@@ -7,7 +7,11 @@ enum class TrayType {
     // crystals group
     Level0, Level1, Level2_25519, Level2, Level3, Level5,
     // mceliece+slhdsa group
-    McEliece_Level1, McEliece_Level2, McEliece_Level3, McEliece_Level4, McEliece_Level5
+    McEliece_Level1, McEliece_Level2, McEliece_Level3, McEliece_Level4, McEliece_Level5,
+    // mlkem+mldsa group (ML-KEM + ML-DSA) @api-candidate-1.2
+    MlKem_Level1, MlKem_Level2, MlKem_Level3, MlKem_Level4,
+    // frodokem+falcon group               @api-candidate-1.2
+    FrodoFalcon_Level1, FrodoFalcon_Level2, FrodoFalcon_Level3, FrodoFalcon_Level4
 };
 
 struct Slot {
