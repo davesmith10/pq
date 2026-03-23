@@ -15,7 +15,7 @@ static void print_usage(const char* prog) {
     std::cerr <<
         "Usage: " << prog << " keygen\n"
         "              --alias <name>\n"
-        "              [--group crystals|mceliece+slhdsa]\n"
+        "              [--group crystals|mceliece+slhdsa|mlkem+mldsa|frodokem+falcon]\n"
         "              [--profile <level>]\n"
         "              [--out <file>]\n"
         "              [--public]\n"
