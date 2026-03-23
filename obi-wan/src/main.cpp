@@ -513,11 +513,30 @@ static int cmd_verify(const std::string& tray_path,
         return 2;
     }
 
-    // Reconstruct partial header (the bytes that were signed)
+    // Reconstruct partial header (the bytes that were signed).
+    // sig_pq_size must match what was used during sign: oqs_sig::sig_bytes()
+    // returns the *maximum* signature length (e.g. Falcon is variable-length),
+    // so we must use that value here rather than hdr.sig_pq.size() (actual from
+    // wire) to ensure both sides hash the same partial header bytes.
+    uint32_t verify_sig_cl_size = (uint32_t)hdr.sig_classical.size();
+    uint32_t verify_sig_pq_size;
+    try {
+        if (dilithium_sig::is_pq_sig(pq_sig->alg_name)) {
+            int mode = dilithium_sig::mode_from_alg(pq_sig->alg_name);
+            verify_sig_pq_size = (uint32_t)dilithium_sig::sig_bytes_for_mode(mode);
+        } else if (oqs_sig::is_oqs_sig(pq_sig->alg_name)) {
+            verify_sig_pq_size = (uint32_t)oqs_sig::sig_bytes(pq_sig->alg_name);
+        } else {
+            verify_sig_pq_size = (uint32_t)slhdsa_sig::sig_bytes(pq_sig->alg_name);
+        }
+    } catch (const std::exception& e) {
+        std::cerr << "Error: signature size lookup failed: " << e.what() << "\n";
+        return 2;
+    }
     auto partial_hdr = hyke_partial_header(hdr,
                                            (uint32_t)payload.size(),
-                                           (uint32_t)hdr.sig_classical.size(),
-                                           (uint32_t)hdr.sig_pq.size());
+                                           verify_sig_cl_size,
+                                           verify_sig_pq_size);
 
     // Compute context binding
     std::vector<uint8_t> ctx_bytes;
