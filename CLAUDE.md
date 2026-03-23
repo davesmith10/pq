@@ -6,9 +6,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ```
 Crystals/
-├── kyber/ref/          — Kyber reference C source; statically compiled into libcrystals-1.1 via CMake
+├── kyber/ref/          — Kyber reference C source; statically compiled into libcrystals-1.2 via CMake
 ├── kyber/avx2/         — Kyber AVX2 source (not used by the CMake tools)
-├── dilithium/ref/      — Dilithium reference C source; statically compiled into libcrystals-1.1 via CMake
+├── dilithium/ref/      — Dilithium reference C source; statically compiled into libcrystals-1.2 via CMake
 ├── dilithium/avx2/     — Dilithium AVX2 source (not used by the CMake tools)
 ├── msgpack-c/          — msgpack-c header-only library (vendored)
 ├── XKCP/               — eXtended Keccak Code Package; pre-built libXKCP.so (obi-wan + libcrystals)
@@ -17,9 +17,9 @@ Crystals/
 ├── local/              — Shared install prefix for BLAKE3 + TBB (CMake finds them here)
 └── pq/                 — Main project (git root)
     ├── include/        — Shared headers (tray.hpp domain model)
-    ├── scotty/         — Hybrid PQ+classical tray keygen tool (uses libcrystals-1.1)
+    ├── scotty/         — Hybrid PQ+classical tray keygen tool (uses libcrystals-1.2)
     ├── obi-wan/        — Hybrid KEM file encryption tool
-    ├── libcrystals-1.1/ — Consolidated crypto library; installed to /usr/local via install.sh
+    ├── libcrystals-1.2/ — Consolidated crypto library; installed to /usr/local via install.sh
     ├── msgpack/        — Tray binary encoding library + tests
     ├── misc/           — Utilities (hashpass, etc.)
     └── static-verify/  — Standalone project verifying the static Kyber + Dilithium CMake
@@ -34,7 +34,7 @@ Crystals/
 cmake -S pq/scotty -B pq/scotty/build
 cmake --build pq/scotty/build -j$(nproc)
 # Binary: pq/scotty/build/scotty
-# Requires: libcrystals-1.1 installed to /usr/local (see install.sh below)
+# Requires: libcrystals-1.2 installed to /usr/local (see install.sh below)
 ```
 
 **Build obi-wan** (hybrid KEM file encryption):
@@ -42,7 +42,7 @@ cmake --build pq/scotty/build -j$(nproc)
 cmake -S pq/obi-wan -B pq/obi-wan/build
 cmake --build pq/obi-wan/build -j$(nproc)
 # Binary: pq/obi-wan/build/obi-wan
-# Requires: libcrystals-1.1 installed to /usr/local (see install.sh below)
+# Requires: libcrystals-1.2 installed to /usr/local (see install.sh below)
 ```
 
 **Build msgpack** (tray binary encoding library + tests):
@@ -53,9 +53,9 @@ cmake --build pq/msgpack/build -j$(nproc)
 # Tests:   pq/msgpack/build/test_roundtrip
 ```
 
-**Install libcrystals-1.1** (required by scotty and obi-wan; installs fat static archive + CMake config to /usr/local):
+**Install libcrystals-1.2** (required by scotty and obi-wan; installs fat static archive + CMake config to /usr/local):
 ```bash
-sudo bash pq/libcrystals-1.1/install.sh
+sudo bash pq/libcrystals-1.2/install.sh
 # Use --skip-build to regenerate the CMake/pkg-config files without rebuilding
 ```
 
@@ -120,7 +120,7 @@ cd dilithium/ref && make && ./test/test_dilithium3
 obi-wan has two operation modes: **OBIWAN** (encrypt/decrypt using both KEM slots) and
 **HYKE** (sign/verify using all four slots — both KEMs for encryption, both sig slots for auth).
 
-**Source files** (single file after the libcrystals-1.1 migration):
+**Source files** (single file after the libcrystals-1.2 migration):
 - `obi-wan/src/main.cpp` — arg parsing, file I/O, and CLI handlers `cmd_encrypt`, `cmd_decrypt`,
   `cmd_sign`, `cmd_verify`, `cmd_gentok`, `cmd_valtok`, `cmd_pwencrypt`, `cmd_pwdecrypt`.
   All crypto delegated to `Crystals::crystals`.
@@ -157,15 +157,16 @@ are known from the tray type before signing. Conversion: `EVP_DigestSign` → DE
 Fixed sizes: P-256=64B, P-384=96B, P-521=132B.
 
 **Slot selection**: uses `alg_name` matching — KEM classical: `{X25519,P-256,P-384,P-521}`;
-KEM PQ: prefix `"Kyber"` or prefix `"mceliece"`; Sig classical: `{Ed25519,ECDSA P-256,ECDSA P-384,ECDSA P-521}`;
-Sig PQ: `{Dilithium2,Dilithium3,Dilithium5}` or prefix `"SLH-DSA"`.
+KEM PQ: prefix `"Kyber"`, `"mceliece"`, or `oqs_kem::is_oqs_kem()` (ML-KEM-*, FrodoKEM-*);
+Sig classical: `{Ed25519,ECDSA P-256,ECDSA P-384,ECDSA P-521}`;
+Sig PQ: `{Dilithium2,Dilithium3,Dilithium5}`, prefix `"SLH-DSA"`, or `oqs_sig::is_oqs_sig()` (ML-DSA-*, Falcon-*).
 
 ### scotty Architecture
 scotty generates **hybrid trays** — named bundles of paired PQ+classical key slots, and can
 password-protect/unprotect the secret keys in place. scotty is a thin CLI shell backed entirely
-by `Crystals::crystals` (libcrystals-1.1).
+by `Crystals::crystals` (libcrystals-1.2).
 
-**Source files** (single file after the libcrystals-1.1 migration):
+**Source files** (single file after the libcrystals-1.2 migration):
 - `scotty/src/main.cpp` — arg parsing, TTY interaction, password hygiene, file I/O, and
   CLI handlers `cmd_keygen`, `cmd_protect`, `cmd_unprotect`. All crypto delegated to library.
 
@@ -189,7 +190,7 @@ and `openssl/crypto.h` OPENSSL_cleanse in cmd_protect/cmd_unprotect).
 `unprotect --in <f> --out <f>` = decrypt sk fields back to plain `type: tray` YAML.
 
 ### msgpack Architecture
-`pq/msgpack/src/tray_pack.{hpp,cpp}` is compiled into libcrystals-1.1 (obi-wan and scotty reach
+`pq/msgpack/src/tray_pack.{hpp,cpp}` is compiled into libcrystals-1.2 (obi-wan and scotty reach
 it via `load_tray()`). The `pq/msgpack/` CMake project builds a standalone `libtraymsgpack.a`
 and tests for other consumers.
 
@@ -206,11 +207,11 @@ map(8) { "v"→uint, "a"→str, "pg"→str, "t"→str, "id"→str, "cr"→str, "
 pk/sk are stored as raw bytes (msgpack BIN), not base64. Achieves ~67% of YAML file size.
 
 **Dependencies**: msgpack-c header-only at `Crystals/msgpack-c/include` — **required by
-libcrystals-1.1 and the standalone msgpack build**. Do not delete `msgpack-c/`. Compile with
+libcrystals-1.2 and the standalone msgpack build**. Do not delete `msgpack-c/`. Compile with
 `-DMSGPACK_NO_BOOST` (no Boost needed).
 
 ### Static Linking Strategy
-**obi-wan** and **scotty**: Both use `libcrystals-1.1.a` — a fat static archive (installed at
+**obi-wan** and **scotty**: Both use `libcrystals-1.2.a` — a fat static archive (installed at
 `/usr/local/lib/`) that bundles all 8 PQ ref archives + 3 scrypt archives + McEliece + the
 crystals objects. No separate `add_subdirectory` or `kyber/ref` source needed. Link via the
 `Crystals::crystals` CMake target.
@@ -219,7 +220,7 @@ crystals objects. No separate `add_subdirectory` or `kyber/ref` source needed. L
 Both **scotty** and **obi-wan** use the same RPATH strategy:
 - TBB libdir (derived from `TBB::tbb` imported target location, resolved transitively via
   `CrystalsConfig.cmake`) + `/usr/local/lib` (covers `libXKCP.so` installed there by
-  `libcrystals-1.1/install.sh`).
+  `libcrystals-1.2/install.sh`).
 
 ### Key Size Constants (from `*_api.hpp`)
 | Level | Public Key | Secret Key | Ciphertext/Sig |
@@ -232,6 +233,27 @@ Both **scotty** and **obi-wan** use the same RPATH strategy:
 | Dilithium5 | 2592 B | **4896 B** | 4627 B |
 
 (Note: Dilithium sk sizes differ from NIST ML-DSA spec; use values from `dilithium/ref/api.h`)
+
+## Verified Working (obi-wan)
+- All 16 encrypt/decrypt combos: {level2-25519,level2,level3,level5} × {SHAKE,KMAC} × {AES-256-GCM,ChaCha20}: OK
+- All 4 sign/verify tray types: {level2-25519,level2,level3,level5}: OK
+- YAML and msgpack tray formats both load correctly for sign/verify
+- 1MB binary file sign/verify roundtrip: OK
+- Tampered payload → "classical signature INVALID" + exit 2
+- Wrong tray type → "tray type mismatch" + exit 2; missing --tray → exit 1
+- pwencrypt/pwdecrypt: all 3 levels (512/768/1024) roundtrip OK; wrong password → exit 2; tampered binary → exit 2
+- mlkem+mldsa mk-level2, mk-level3, mk-level4: encrypt/decrypt/sign/verify OK (2026-03-23)
+- frodokem+falcon ff-level2, ff-level3: encrypt/decrypt/sign/verify OK (2026-03-23)
+
+## padme Tool
+CLI: `padme tray-encaps --in-tray <file> --out-png <png> --pwfile /dev/stdin`
+     `padme tray-decaps --in-png <png> --out-tray <file> --pwfile /dev/stdin`
+- Supports all profile groups: crystals (level0–level5), mceliece+slhdsa (level1–level5),
+  mlkem+mldsa (mk-level2/3/4), frodokem+falcon (ff-level2/3)
+- Migrated from direct-source-compile to `Crystals::crystals` fat archive (libcrystals-1.2)
+- Build: `cmake -S pq/padme -B pq/padme/build && cmake --build pq/padme/build -j$(nproc)`
+- Binary: `pq/padme/build/padme`
+- Exit codes: 0=ok, 2=crypto/wrong password, 3=I/O
 
 ## CMakeLists.txt Paths
 - scotty: `cmake -S pq/scotty -B pq/scotty/build` (no CMAKE_PREFIX_PATH needed)
