@@ -703,6 +703,116 @@ static void test_slhdsa_sig() {
     }
 }
 
+// ── Section 14: OQS Groups (mlkem+mldsa and frodokem+falcon) ─────────────────
+
+static void test_oqs_groups() {
+    std::printf("=== Section 14: OQS Groups ===\n");
+
+    // ── mlkem+mldsa ──────────────────────────────────────────────────────────
+    {
+        struct Case { TrayType t; const char* name; size_t slots; };
+        Case cases[] = {
+            { TrayType::MlKem_Level1, "mk-level1", 2 },
+            { TrayType::MlKem_Level2, "mk-level2", 4 },
+            { TrayType::MlKem_Level3, "mk-level3", 4 },
+            { TrayType::MlKem_Level4, "mk-level4", 4 },
+        };
+
+        for (auto& c : cases) {
+            Tray tray = make_tray(c.t, "alice");
+            CHECK(tray.slots.size() == c.slots);
+            CHECK(!tray.id.empty());
+            CHECK(uuid_is_v8(tray.id));
+            CHECK(tray.alias == "alice");
+            CHECK(tray.profile_group == "mlkem+mldsa");
+            CHECK(validate_tray_uuid(tray));
+
+            for (const auto& slot : tray.slots) {
+                CHECK(!slot.pk.empty());
+                CHECK(!slot.sk.empty());
+            }
+
+            // make_public_tray: same UUID, sk cleared
+            Tray pub = make_public_tray(tray);
+            CHECK(pub.id == tray.id);
+            CHECK(pub.alias == "alice.pub");
+            for (const auto& slot : pub.slots)
+                CHECK(slot.sk.empty());
+
+            std::printf("  mlkem+mldsa %s: OK\n", c.name);
+        }
+    }
+
+    // ── frodokem+falcon ──────────────────────────────────────────────────────
+    {
+        struct Case { TrayType t; const char* name; size_t slots; };
+        Case cases[] = {
+            { TrayType::FrodoFalcon_Level1, "ff-level1", 2 },
+            { TrayType::FrodoFalcon_Level2, "ff-level2", 4 },
+            { TrayType::FrodoFalcon_Level3, "ff-level3", 4 },
+            { TrayType::FrodoFalcon_Level4, "ff-level4", 4 },
+        };
+
+        for (auto& c : cases) {
+            Tray tray = make_tray(c.t, "bob");
+            CHECK(tray.slots.size() == c.slots);
+            CHECK(!tray.id.empty());
+            CHECK(uuid_is_v8(tray.id));
+            CHECK(tray.alias == "bob");
+            CHECK(tray.profile_group == "frodokem+falcon");
+            CHECK(validate_tray_uuid(tray));
+
+            for (const auto& slot : tray.slots) {
+                CHECK(!slot.pk.empty());
+                CHECK(!slot.sk.empty());
+            }
+
+            // make_public_tray: same UUID, sk cleared
+            Tray pub = make_public_tray(tray);
+            CHECK(pub.id == tray.id);
+            CHECK(pub.alias == "bob.pub");
+            for (const auto& slot : pub.slots)
+                CHECK(slot.sk.empty());
+
+            std::printf("  frodokem+falcon %s: OK\n", c.name);
+        }
+    }
+
+    // ── YAML round-trip for a new group ──────────────────────────────────────
+    {
+        Tray orig = make_tray(TrayType::MlKem_Level2, "carol");
+        std::string yaml = emit_tray_yaml(orig);
+        CHECK(!yaml.empty());
+        std::string path = tmp_path("mlkem_yaml.tray");
+        { std::ofstream f(path); f << yaml; }
+        Tray loaded = load_tray(path);
+        CHECK(loaded.id == orig.id);
+        CHECK(loaded.profile_group == "mlkem+mldsa");
+        CHECK(loaded.slots.size() == 4);
+        for (size_t i = 0; i < 4; ++i) {
+            CHECK(loaded.slots[i].alg_name == orig.slots[i].alg_name);
+            CHECK(loaded.slots[i].pk == orig.slots[i].pk);
+            CHECK(loaded.slots[i].sk == orig.slots[i].sk);
+        }
+        std::printf("  mlkem+mldsa YAML round-trip: OK\n");
+    }
+
+    // ── protect/unprotect for a new group ────────────────────────────────────
+    {
+        Tray tray = make_tray(TrayType::FrodoFalcon_Level2, "dave");
+        const char* pw = "hunter2hunter2hunter2";
+        SecureTray st = protect_tray(tray, pw, std::strlen(pw));
+        CHECK(st.type_str == "secure-tray");
+
+        Tray recovered = unprotect_tray(st, pw, std::strlen(pw));
+        CHECK(recovered.id == tray.id);
+        CHECK(recovered.slots.size() == tray.slots.size());
+        for (size_t i = 0; i < tray.slots.size(); ++i)
+            CHECK(recovered.slots[i].sk == tray.slots[i].sk);
+        std::printf("  frodokem+falcon protect/unprotect: OK\n");
+    }
+}
+
 // ── main ──────────────────────────────────────────────────────────────────────
 
 int main() {
@@ -726,6 +836,7 @@ int main() {
         test_mceliece_slhdsa_keygen();
         test_mceliece_kem();
         test_slhdsa_sig();
+        test_oqs_groups();
     } catch (const std::exception& e) {
         std::fprintf(stderr, "UNCAUGHT EXCEPTION: %s\n", e.what());
         return 1;
