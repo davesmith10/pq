@@ -4,6 +4,7 @@
 #include "dilithium_ops.hpp"
 #include "mceliece_ops.hpp"
 #include "slhdsa_ops.hpp"
+#include "oqs_ops.hpp"
 #include "blake3.h"
 #include <cstdint>
 #include <cstdio>
@@ -123,6 +124,24 @@ static Slot make_slhdsa_slot(const std::string& alg_name) {
     return s;
 }
 
+static Slot make_oqs_kem_slot(const std::string& alg_name) {
+    Slot s;
+    s.alg_name = alg_name;
+    auto keys = oqs_kem::keygen(alg_name);
+    s.pk = std::move(keys.pk);
+    s.sk = std::move(keys.sk);
+    return s;
+}
+
+static Slot make_oqs_sig_slot(const std::string& alg_name) {
+    Slot s;
+    s.alg_name = alg_name;
+    auto keys = oqs_sig::keygen(alg_name);
+    s.pk = std::move(keys.pk);
+    s.sk = std::move(keys.sk);
+    return s;
+}
+
 // ── make_tray ─────────────────────────────────────────────────────────────────
 
 Tray make_tray(TrayType t, const std::string& alias)
@@ -223,6 +242,76 @@ Tray make_tray(TrayType t, const std::string& alias)
             tray.slots.push_back(make_mceliece_slot("mceliece8192128f"));
             tray.slots.push_back(make_ec_slot("ECDSA P-256",   ec::Algorithm::P256));
             tray.slots.push_back(make_slhdsa_slot("SLH-DSA-SHAKE-256f"));
+            break;
+
+        // ── mlkem+mldsa group ─────────────────────────────────────────────────
+        case TrayType::MlKem_Level1:
+            tray.profile_group = "mlkem+mldsa";
+            tray.type_str = "mk-level1";
+            tray.slots.push_back(make_oqs_kem_slot("ML-KEM-512"));
+            tray.slots.push_back(make_oqs_sig_slot("ML-DSA-44"));
+            break;
+
+        case TrayType::MlKem_Level2:
+            tray.profile_group = "mlkem+mldsa";
+            tray.type_str = "mk-level2";
+            tray.slots.push_back(make_ec_slot("P-256",       ec::Algorithm::P256));
+            tray.slots.push_back(make_oqs_kem_slot("ML-KEM-512"));
+            tray.slots.push_back(make_ec_slot("ECDSA P-256", ec::Algorithm::P256));
+            tray.slots.push_back(make_oqs_sig_slot("ML-DSA-44"));
+            break;
+
+        case TrayType::MlKem_Level3:
+            tray.profile_group = "mlkem+mldsa";
+            tray.type_str = "mk-level3";
+            tray.slots.push_back(make_ec_slot("P-384",       ec::Algorithm::P384));
+            tray.slots.push_back(make_oqs_kem_slot("ML-KEM-768"));
+            tray.slots.push_back(make_ec_slot("ECDSA P-384", ec::Algorithm::P384));
+            tray.slots.push_back(make_oqs_sig_slot("ML-DSA-65"));
+            break;
+
+        case TrayType::MlKem_Level4:
+            tray.profile_group = "mlkem+mldsa";
+            tray.type_str = "mk-level4";
+            tray.slots.push_back(make_ec_slot("P-521",       ec::Algorithm::P521));
+            tray.slots.push_back(make_oqs_kem_slot("ML-KEM-1024"));
+            tray.slots.push_back(make_ec_slot("ECDSA P-521", ec::Algorithm::P521));
+            tray.slots.push_back(make_oqs_sig_slot("ML-DSA-87"));
+            break;
+
+        // ── frodokem+falcon group ─────────────────────────────────────────────
+        case TrayType::FrodoFalcon_Level1:
+            tray.profile_group = "frodokem+falcon";
+            tray.type_str = "ff-level1";
+            tray.slots.push_back(make_oqs_kem_slot("FrodoKEM-640-AES"));
+            tray.slots.push_back(make_oqs_sig_slot("Falcon-512"));
+            break;
+
+        case TrayType::FrodoFalcon_Level2:
+            tray.profile_group = "frodokem+falcon";
+            tray.type_str = "ff-level2";
+            tray.slots.push_back(make_ec_slot("P-256",       ec::Algorithm::P256));
+            tray.slots.push_back(make_oqs_kem_slot("FrodoKEM-640-AES"));
+            tray.slots.push_back(make_ec_slot("ECDSA P-256", ec::Algorithm::P256));
+            tray.slots.push_back(make_oqs_sig_slot("Falcon-512"));
+            break;
+
+        case TrayType::FrodoFalcon_Level3:
+            tray.profile_group = "frodokem+falcon";
+            tray.type_str = "ff-level3";
+            tray.slots.push_back(make_ec_slot("P-384",       ec::Algorithm::P384));
+            tray.slots.push_back(make_oqs_kem_slot("FrodoKEM-976-AES"));
+            tray.slots.push_back(make_ec_slot("ECDSA P-384", ec::Algorithm::P384));
+            tray.slots.push_back(make_oqs_sig_slot("Falcon-512"));
+            break;
+
+        case TrayType::FrodoFalcon_Level4:
+            tray.profile_group = "frodokem+falcon";
+            tray.type_str = "ff-level4";
+            tray.slots.push_back(make_ec_slot("P-521",       ec::Algorithm::P521));
+            tray.slots.push_back(make_oqs_kem_slot("FrodoKEM-1344-AES"));
+            tray.slots.push_back(make_ec_slot("ECDSA P-521", ec::Algorithm::P521));
+            tray.slots.push_back(make_oqs_sig_slot("Falcon-1024"));
             break;
     }
 
