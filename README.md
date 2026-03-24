@@ -1,15 +1,72 @@
-# pq — Post-Quantum Crypto Tools
+# pqc — Post-Quantum Crypto Tools + Libcrystals
 
-C++17 CLI tools and libraries for hybrid PQ+classical key management.
-Built against the CRYSTALS reference implementations from
-[pq-crystals](https://github.com/pq-crystals).
+**C++17 CLI tools and libraries for hybrid PQ+classical key management.**
+
+## What Does This Actually Do?
+
+### Concepts: The Tray, and the Hybrid
+
+For the next few years, everyone is going to be very prudent and overkill and
+implement both classical and post-quantum encryption and signature - because
+we want to add additional complexity? No, because we have to plan for the situation 
+in which a clever post-quantum algorithm wasn't actually so clever, and fails. 
+In that scenario, we still have good old Elliptic Curve to cover our butts.
+
+This leads to the "hybrid algorithm", which is an interesting design consideration. 
+We need to use two different sets of asymmetric key materials to implement this, 
+one set being classical, the other, post-quantum. 
+
+It is convenient, since these key materials are not used separately, but the suggested
+approach is to intertwine them, that they should be put together in one structure. Our
+concept is the "tray" - more or less like a dish drying rack, with four "slots". Each
+slot holds one key. The 0 and 2 positions (or 1 and 3, if you like) are for the
+public keys, with the classical public key always at position 0. The 2 and 4 positions
+in the tray are for the secret keys. 
+
+Trays are not encoded in ASN-1 by default; that would be tedium. No, we use a YAML format
+as our specification: simple, clean, easy to read, and we base64 encode the binary bits.
+
+`scotty` is a command-line application that does nothing but make these trays (it can
+also protect the private keys with a password-based (scrypt) KDF). This level of protection
+is not that different from PKCS12, but it does have the virtue of leaving the public keys
+in full view. For things like signature verification.
+
+`obi-wan` is a command-line application that uses the trays to do encryption and digital signature.
+It has three basic algorithms: 
+
+- encrypt / decrypt
+
+Encrypts a file using both the classical KEM slot and the PQ KEM slot from the tray. 
+The two shared secrets are combined via a hybrid KDF; the result encrypts the payload with the 
+chosen symmetric cipher.
+
+Output is written to stdout as a PEM-armored `OBIWAN ENCRYPTED FILE`.
+
+- encrypt and sign
+
+Encrypts and signs a file using all four slots in the tray: both KEM slots protect the
+symmetric key (same as `encrypt`), and both signature slots (Ed25519/ECDSA + Dilithium
+or SLH-DSA) sign the header and encrypted payload.
+
+Output is written to stdout as a PEM-armored `HYKE SIGNED FILE`.
+
+- password encrypt
+
+The password scheme does some interesting things and is probably the most secure password-based
+algorithm in the world due to it's hybrid, layered design. 
 
 See [ALGORITHMS.md](ALGORITHMS.md) for details on the OBIWAN and HYKE hybrid algorithms,
 and [PASSWORD-ENC.md](PASSWORD-ENC.md) for the PWENC password-based encryption scheme.
 
-## Tools
+- tokens
 
-### scotty — Hybrid Tray Keygen
+obi-wan also provides a simple signed token with 256 bytes of space for assertions. This is used for 
+secure login with the (SAREK Secrets Vault)[https://github.com/davesmith10/sarek].
+
+
+# Tools
+
+## scotty — Hybrid Tray Keygen
 
 Generates named **hybrid trays** — bundles of paired PQ+classical key slots
 covering both KEM and signature roles.
@@ -23,6 +80,10 @@ scotty keygen [--group crystals|mceliece+slhdsa]
 scotty protect   --in <file> --out <file> [--password-file <file>]
 scotty unprotect --in <file> --out <file> [--password-file <file>]
 ```
+
+### Tray Selection
+
+*This might seem a bit capricious but there's a method to the madness.*
 
 Default group: `crystals`. Default profile: `level2-25519`.
 
@@ -68,9 +129,11 @@ Default group: `crystals`. Default profile: `level2-25519`.
 **Output modes:**
 - Default (no flags): YAML with literal block scalar base64 to stdout
 - `--out <file>`: write YAML to `<file>`; auto-prints a human-readable summary to stdout
-- `--public`: also emit a companion public tray (alias `<name>.pub`, **same UUID** as the private tray, no secret keys). With `--out`, written to `<name>.pub.<ext>`; without `--out`, both YAML documents go to stdout
+- `--public`: also emit a companion public tray (alias `<name>.pub`, **same UUID** as the private tray, no secret keys). 
+With `--out`, written to `<name>.pub.<ext>`; without `--out`, both YAML documents go to stdout.
 
-### obi-wan — Hybrid KEM Encryption and Signing
+
+## obi-wan — Hybrid KEM Encryption and Signing
 
 Encrypts and authenticates arbitrary files using a scotty tray. Two operation
 modes — **OBIWAN** (encrypt-only) and **HYKE** (encrypt-and-sign).
@@ -205,17 +268,51 @@ file size across all tray types.
 **Dependency**: requires `msgpack-c` header-only library vendored at
 `Crystals/msgpack-c/`. Do not remove this directory.
 
-## Build
+## padme — Tray Steganographic Encapsulator
+
+Renders a scotty tray into a password-protected annotated PNG image. Public key bytes
+become plaintext rainbow-colored pixels; private key bytes are encrypted with AES-256-GCM
+in place (scrypt-derived key). The PNG carries decryption metadata in an iTXt chunk and
+can be fully recovered from the image and the original password.
+
+```
+padme tray-encaps  --in-tray <file>    [--out-png <file.png>] [--pwfile <file>]
+padme tray-decaps  --in-png <file.png> [--out-tray <file>]    [--pwfile <file>]
+```
+
+Supports all tray profile groups: crystals, mceliece+slhdsa, mlkem+mldsa, frodokem+falcon.
+
+See [padme/README.md](padme/README.md) for the full command reference, encryption scheme,
+visual layout, and PNG chunk format.
+
+## libcrystals-1.2 — Consolidated Crypto Library
+
+Fat static archive (`libcrystals-1.2.a`) that bundles all PQ and classical cryptography
+used by the tools — Kyber, Dilithium, McEliece, SLH-DSA, ML-KEM, ML-DSA, FrodoKEM,
+Falcon, scrypt, XKCP, BLAKE3, and oneTBB. All three tools (scotty, obi-wan, padme)
+link against it via the `Crystals::crystals` CMake target. The public API is a single
+frozen header: `crystals/crystals.hpp`.
+
+Install once before building any tool:
+
+```bash
+sudo bash pqc/libcrystals-1.2/install.sh
+```
+
+See [libcrystals-1.2/README.md](libcrystals-1.2/README.md) for the API contract,
+version history, dependency list, and install options.
+
+## Building the Tools
 
 **Prerequisites (all tools)**: CMake ≥ 3.15, GCC/Clang with C++17, OpenSSL 3.
 
 **Additional prerequisites for scotty**: `libcrystals-1.2` installed to `/usr/local` via
-`sudo bash pq/libcrystals-1.2/install.sh`. This installs the fat static archive, XKCP shared
+`sudo bash pqc/libcrystals-1.2/install.sh`. This installs the fat static archive, XKCP shared
 library, and CMake package config. BLAKE3 and oneTBB must be in `Crystals/local/` first;
-see `pq/BLAKE3-BUILD.md` for the one-time build procedure.
+see `pqc/BLAKE3-BUILD.md` for the one-time build procedure.
 
 **Additional prerequisites for obi-wan**: `libcrystals-1.2` installed to `/usr/local` via
-`sudo bash pq/libcrystals-1.2/install.sh` (same as scotty). All crypto deps — Kyber,
+`sudo bash pqc/libcrystals-1.2/install.sh` (same as scotty). All crypto deps — Kyber,
 Dilithium, ML-KEM, ML-DSA, FrodoKEM, Falcon, McEliece, SLH-DSA, scrypt, BLAKE3, oneTBB,
 XKCP, yaml-cpp — are bundled inside the fat static archive.
 
@@ -223,24 +320,24 @@ XKCP, yaml-cpp — are bundled inside the fat static archive.
 
 ```bash
 # scotty — no CMAKE_PREFIX_PATH needed; uses libcrystals-1.2 from /usr/local
-cmake -S pq/scotty  -B pq/scotty/build
-cmake --build pq/scotty/build -j$(nproc)
+cmake -S pqc/scotty  -B pqc/scotty/build
+cmake --build pqc/scotty/build -j$(nproc)
 
 # obi-wan — no CMAKE_PREFIX_PATH needed; uses libcrystals-1.2 from /usr/local
-cmake -S pq/obi-wan -B pq/obi-wan/build
-cmake --build pq/obi-wan/build -j$(nproc)
+cmake -S pqc/obi-wan -B pqc/obi-wan/build
+cmake --build pqc/obi-wan/build -j$(nproc)
 
-cmake -S pq/msgpack -B pq/msgpack/build
-cmake --build pq/msgpack/build -j$(nproc)
+cmake -S pqc/msgpack -B pqc/msgpack/build
+cmake --build pqc/msgpack/build -j$(nproc)
 ```
 
 **static-verify** — one-time check that the static Kyber + Dilithium libraries link and
 run correctly (no external dependencies):
 
 ```bash
-cmake -S pq/static-verify -B pq/static-verify/build
-cmake --build pq/static-verify/build -j$(nproc)
-./pq/static-verify/build/test_static_pq   # all 6 levels should print OK
+cmake -S pqc/static-verify -B pqc/static-verify/build
+cmake --build pqc/static-verify/build -j$(nproc)
+./pqc/static-verify/build/test_static_pq   # all 6 levels should print OK
 ```
 
 ## Exit Codes
@@ -256,25 +353,62 @@ All tools use the same exit code convention:
 
 ## Repository Layout
 
+Quite a bit of third-party crypto is going into libcrystals. While this is somewhat fetishistic, I guess I just like algorithms with interesting names.
+
 ```
 Crystals/
-├── kyber/ref/          — Kyber reference C source; statically compiled into tools via CMake
-├── kyber/avx2/         — Kyber AVX2 source (not used by the CMake tools)
-├── dilithium/ref/      — Dilithium reference C source; statically compiled via CMake
-├── dilithium/avx2/     — Dilithium AVX2 source (not used by the CMake tools)
-├── msgpack-c/          — msgpack-c header-only library (vendored)
-├── XKCP/               — eXtended Keccak Code Package; pre-built libXKCP.so (bundled by libcrystals-1.2)
-├── BLAKE3/             — BLAKE3 source; built + installed to local/ (UUID derivation)
-├── oneTBB/             — oneTBB source; built + installed to local/ (BLAKE3 parallelism)
-├── local/              — Shared install prefix for BLAKE3 + TBB (CMake finds them here)
-└── pq/                 — Main project (git root)
-    ├── include/        — Shared headers (tray.hpp domain model)
-    ├── scotty/         — Hybrid PQ+classical tray keygen tool (uses libcrystals-1.2)
-    ├── obi-wan/        — Hybrid KEM file encryption tool
-    ├── libcrystals-1.2/ — Consolidated crypto library; installed to /usr/local via install.sh
-    ├── msgpack/        — Tray binary encoding library + tests
-    ├── misc/           — Utilities (hashpass, etc.)
-    └── static-verify/  — Standalone project verifying the static Kyber + Dilithium CMake
-                          libraries; links all 8 static targets + randombytes.c, runs KEM
-                          and signature round-trips for all 6 parameter sets
+├── kyber/ref/                — Kyber reference C source; statically compiled into tools via CMake
+├── kyber/avx2/               — Kyber AVX2 source (not used by the CMake tools)
+├── dilithium/ref/            — Dilithium reference C source; statically compiled via CMake
+├── dilithium/avx2/           — Dilithium AVX2 source (not used by the CMake tools)
+├── liboqs/                   — Open Quantum Safe library (ML-KEM, ML-DSA, FrodoKEM, Falcon, etc.)
+├── libmceliece/              — Classic McEliece KEM source (bundled into libcrystals-1.2)
+├── scrypt/                   — scrypt KDF source (bundled into libcrystals-1.2)
+├── XKCP/                     — eXtended Keccak Code Package; pre-built libXKCP.so (SHAKE/KMAC)
+├── BLAKE3/                   — BLAKE3 source; built + installed to local/ (UUID derivation)
+├── oneTBB/                   — oneTBB source; built + installed to local/ (BLAKE3 parallelism)
+├── msgpack-c/                — msgpack-c header-only library (vendored; tray binary encoding)
+├── lodepng/                  — LodePNG source (vendored; PNG encode/decode used by padme)
+├── librandombytes-20240318/  — RNG API shim (DJB; used during PQ keygen)
+├── libcpucycles-20260105/    — CPU cycle counter (DJB; benchmarking only)
+├── local/                    — Shared install prefix for BLAKE3 + TBB (CMake finds them here)
+└── pqc/                  — Main project (git root)
+    ├── include/          — Shared headers (tray.hpp domain model)
+    ├── scotty/           — Hybrid PQ+classical tray keygen tool (uses libcrystals-1.2)
+    ├── obi-wan/          — Hybrid KEM file encryption tool
+    ├── padme/            — Tray steganographic encapsulator (tray → password-protected PNG)
+    ├── libcrystals-1.2/  — Consolidated crypto library; installed to /usr/local via install.sh
+    ├── msgpack/          — Tray binary encoding library + tests
+    ├── misc/             — Utilities (hashpass, etc.)
+    └── static-verify/    — Standalone project verifying the static Kyber + Dilithium CMake
+                            libraries; links all 8 static targets + randombytes.c, runs KEM
+                            and signature round-trips for all 6 parameter sets
 ```
+
+# Licensing
+
+The pqc repo contents is available under an MIT license:
+
+```
+© 2026 David R. Smith, All Rights Reserved
+
+By obtaining, using, and/or copying this software and/or its associated documentation, you agree that you have read, understood, 
+and will comply with the following terms and conditions:
+
+Permission to use, copy, modify, and distribute this software and its associated documentation for any purpose and without fee is 
+hereby granted, provided that the above copyright notice appears in all copies, and that both that copyright notice and this permission 
+notice appear in supporting documentation, and that the name of the copyright holder not be used in advertising or publicity pertaining 
+to distribution of the software without specific, written prior permission.
+
+THE COPYRIGHT HOLDER DISCLAIM ALL WARRANTIES WITH REGARD TO THIS SOFTWARE, INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS. 
+IN NO EVENT SHALL THE COPYRIGHT HOLDER BE LIABLE FOR ANY SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING 
+FROM THE LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION
+WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+
+```
+
+See [LICENSE-THIRD-PARTY)[LICENSE-THIRD-PARTY] for a comprehensive list of third-party software that has been linked to.
+
+
+
+

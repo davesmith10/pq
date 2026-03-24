@@ -20,9 +20,9 @@ obi-wan pwdecrypt [--pwfile <file>] <infile> <outfile>
 
 ### encrypt / decrypt
 
-Encrypts a file using both the classical KEM slot and the PQ KEM slot (Kyber or McEliece)
-from the tray. The two shared secrets are combined via a hybrid KDF; the result encrypts
-the payload with the chosen symmetric cipher.
+Encrypts a file using both the classical KEM slot and the PQ KEM slot from the tray. 
+The two shared secrets are combined via a hybrid KDF; the result encrypts the payload with the 
+chosen symmetric cipher.
 
 Output is written to stdout as a PEM-armored `OBIWAN ENCRYPTED FILE`.
 
@@ -44,7 +44,7 @@ Output is written to stdout as a PEM-armored `HYKE SIGNED FILE`.
 
 `verify` checks both signatures before decrypting. Any tampering causes exit code 2.
 
-Requires a tray with all four slots present (hybrid levels only — not level1/ms-level1).
+Requires a tray with all four slots present (hybrid levels only — not level0/level1).
 
 ### gentok / valtok
 

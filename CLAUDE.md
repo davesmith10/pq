@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Deps and pq Repository Layout
+## Deps and pqc Repository Layout
 
 ```
 Crystals/
@@ -15,7 +15,7 @@ Crystals/
 ├── BLAKE3/             — BLAKE3 source; built + installed to local/ (UUID derivation)
 ├── oneTBB/             — oneTBB source; built + installed to local/ (BLAKE3 parallelism)
 ├── local/              — Shared install prefix for BLAKE3 + TBB (CMake finds them here)
-└── pq/                 — Main project (git root)
+└── pqc/                — Main project (git root)
     ├── include/        — Shared headers (tray.hpp domain model)
     ├── scotty/         — Hybrid PQ+classical tray keygen tool (uses libcrystals-1.2)
     ├── obi-wan/        — Hybrid KEM file encryption tool
@@ -31,31 +31,31 @@ Crystals/
 
 **Build scotty** (hybrid PQ+classical tray keygen):
 ```bash
-cmake -S pq/scotty -B pq/scotty/build
-cmake --build pq/scotty/build -j$(nproc)
-# Binary: pq/scotty/build/scotty
+cmake -S pqc/scotty -B pqc/scotty/build
+cmake --build pqc/scotty/build -j$(nproc)
+# Binary: pqc/scotty/build/scotty
 # Requires: libcrystals-1.2 installed to /usr/local (see install.sh below)
 ```
 
 **Build obi-wan** (hybrid KEM file encryption):
 ```bash
-cmake -S pq/obi-wan -B pq/obi-wan/build
-cmake --build pq/obi-wan/build -j$(nproc)
-# Binary: pq/obi-wan/build/obi-wan
+cmake -S pqc/obi-wan -B pqc/obi-wan/build
+cmake --build pqc/obi-wan/build -j$(nproc)
+# Binary: pqc/obi-wan/build/obi-wan
 # Requires: libcrystals-1.2 installed to /usr/local (see install.sh below)
 ```
 
 **Build msgpack** (tray binary encoding library + tests):
 ```bash
-cmake -S pq/msgpack -B pq/msgpack/build
-cmake --build pq/msgpack/build -j$(nproc)
-# Library: pq/msgpack/build/libtraymsgpack.a
-# Tests:   pq/msgpack/build/test_roundtrip
+cmake -S pqc/msgpack -B pqc/msgpack/build
+cmake --build pqc/msgpack/build -j$(nproc)
+# Library: pqc/msgpack/build/libtraymsgpack.a
+# Tests:   pqc/msgpack/build/test_roundtrip
 ```
 
 **Install libcrystals-1.2** (required by scotty and obi-wan; installs fat static archive + CMake config to /usr/local):
 ```bash
-sudo bash pq/libcrystals-1.2/install.sh
+sudo bash pqc/libcrystals-1.2/install.sh
 # Use --skip-build to regenerate the CMake/pkg-config files without rebuilding
 ```
 
@@ -71,20 +71,20 @@ sudo bash pq/libcrystals-1.2/install.sh
 
 ```bash
 # obi-wan: encrypt → decrypt (YAML tray, defaults)
-./pq/scotty/build/scotty keygen --alias alice --profile level2-25519 > /tmp/alice.tray
+./pqc/scotty/build/scotty keygen --alias alice --profile level2-25519 > /tmp/alice.tray
 echo "hello" > /tmp/plain.txt
-./pq/obi-wan/build/obi-wan encrypt --tray /tmp/alice.tray /tmp/plain.txt > /tmp/out.armored
-./pq/obi-wan/build/obi-wan decrypt --tray /tmp/alice.tray /tmp/out.armored | diff /tmp/plain.txt -
+./pqc/obi-wan/build/obi-wan encrypt --tray /tmp/alice.tray /tmp/plain.txt > /tmp/out.armored
+./pqc/obi-wan/build/obi-wan decrypt --tray /tmp/alice.tray /tmp/out.armored | diff /tmp/plain.txt -
 
 # obi-wan: KMAC + ChaCha20, YAML tray written to file
-./pq/scotty/build/scotty keygen --alias bob --profile level3 --out /tmp/bob.tray
-./pq/obi-wan/build/obi-wan encrypt --tray /tmp/bob.tray --kdf KMAC --cipher ChaCha20 /tmp/plain.txt > /tmp/out2.armored
-./pq/obi-wan/build/obi-wan decrypt --tray /tmp/bob.tray /tmp/out2.armored | diff /tmp/plain.txt -
+./pqc/scotty/build/scotty keygen --alias bob --profile level3 --out /tmp/bob.tray
+./pqc/obi-wan/build/obi-wan encrypt --tray /tmp/bob.tray --kdf KMAC --cipher ChaCha20 /tmp/plain.txt > /tmp/out2.armored
+./pqc/obi-wan/build/obi-wan decrypt --tray /tmp/bob.tray /tmp/out2.armored | diff /tmp/plain.txt -
 
 # obi-wan: sign → verify (HYKE, all 4 tray types)
-./pq/scotty/build/scotty keygen --alias alice --profile level2-25519 > /tmp/alice.tray
-./pq/obi-wan/build/obi-wan sign   --tray /tmp/alice.tray /tmp/plain.txt > /tmp/alice.hyke
-./pq/obi-wan/build/obi-wan verify --tray /tmp/alice.tray /tmp/alice.hyke | diff /tmp/plain.txt -
+./pqc/scotty/build/scotty keygen --alias alice --profile level2-25519 > /tmp/alice.tray
+./pqc/obi-wan/build/obi-wan sign   --tray /tmp/alice.tray /tmp/plain.txt > /tmp/alice.hyke
+./pqc/obi-wan/build/obi-wan verify --tray /tmp/alice.tray /tmp/alice.hyke | diff /tmp/plain.txt -
 
 # scotty: hybrid tray keygen (crystals group, default)
 ./scotty keygen --profile level3 --alias alice                          # YAML to stdout (default)
@@ -105,7 +105,7 @@ echo "hello" > /tmp/plain.txt
 ./scotty unprotect --in alice.sec.tray --out alice.plain.tray --password-file /tmp/pw.txt
 
 # msgpack: round-trip tests
-./pq/msgpack/build/test_roundtrip
+./pqc/msgpack/build/test_roundtrip
 
 # Kyber upstream tests (1000 cycles each level)
 cd kyber/ref && make && ./test/test_kyber768
@@ -190,11 +190,11 @@ and `openssl/crypto.h` OPENSSL_cleanse in cmd_protect/cmd_unprotect).
 `unprotect --in <f> --out <f>` = decrypt sk fields back to plain `type: tray` YAML.
 
 ### msgpack Architecture
-`pq/msgpack/src/tray_pack.{hpp,cpp}` is compiled into libcrystals-1.2 (obi-wan and scotty reach
-it via `load_tray()`). The `pq/msgpack/` CMake project builds a standalone `libtraymsgpack.a`
+`pqc/msgpack/src/tray_pack.{hpp,cpp}` is compiled into libcrystals-1.2 (obi-wan and scotty reach
+it via `load_tray()`). The `pqc/msgpack/` CMake project builds a standalone `libtraymsgpack.a`
 and tests for other consumers.
 
-- `pq/include/tray.hpp` — shared domain model included by both scotty and msgpack
+- `pqc/include/tray.hpp` — shared domain model included by both scotty and msgpack
 - `msgpack/src/tray_pack.hpp` — public API: `tray_mp::pack`, `unpack`, `pack_to_file`, `unpack_from_file`
 - `msgpack/src/tray_pack.cpp` — implementation using msgpack-c header-only API
 - `msgpack/test/test_roundtrip.cpp` — in-memory mock Tray round-trip test (no external deps)
@@ -251,23 +251,23 @@ CLI: `padme tray-encaps --in-tray <file> --out-png <png> --pwfile /dev/stdin`
 - Supports all profile groups: crystals (level0–level5), mceliece+slhdsa (level1–level5),
   mlkem+mldsa (mk-level2/3/4), frodokem+falcon (ff-level2/3)
 - Migrated from direct-source-compile to `Crystals::crystals` fat archive (libcrystals-1.2)
-- Build: `cmake -S pq/padme -B pq/padme/build && cmake --build pq/padme/build -j$(nproc)`
-- Binary: `pq/padme/build/padme`
+- Build: `cmake -S pqc/padme -B pqc/padme/build && cmake --build pqc/padme/build -j$(nproc)`
+- Binary: `pqc/padme/build/padme`
 - Exit codes: 0=ok, 2=crypto/wrong password, 3=I/O
 
 ## CMakeLists.txt Paths
-- scotty: `cmake -S pq/scotty -B pq/scotty/build` (no CMAKE_PREFIX_PATH needed)
+- scotty: `cmake -S pqc/scotty -B pqc/scotty/build` (no CMAKE_PREFIX_PATH needed)
   - `find_package(Crystals REQUIRED)` — finds from `/usr/local/lib/cmake/crystals`
   - `find_package(OpenSSL REQUIRED)` — for `openssl/ui.h` + `openssl/crypto.h`
   - TBB and BLAKE3 resolved transitively inside CrystalsConfig.cmake
   - RPATH: `CMAKE_BUILD_RPATH` set to TBB libdir + `/usr/local/lib`
-- obi-wan: `cmake -S pq/obi-wan -B pq/obi-wan/build` (no CMAKE_PREFIX_PATH needed)
+- obi-wan: `cmake -S pqc/obi-wan -B pqc/obi-wan/build` (no CMAKE_PREFIX_PATH needed)
   - `find_package(Crystals REQUIRED)` — finds from `/usr/local/lib/cmake/crystals`
   - `find_package(OpenSSL REQUIRED)` — for `openssl/rand.h`
   - TBB, BLAKE3, XKCP, scrypt, PQ libs all resolved transitively via CrystalsConfig.cmake
   - RPATH: `CMAKE_BUILD_RPATH` set to TBB libdir + `/usr/local/lib`
-- msgpack: `cmake -S pq/msgpack -B pq/msgpack/build` (no PREFIX_PATH needed; no BLAKE3/TBB)
-- static-verify: `cmake -S pq/static-verify -B pq/static-verify/build` (no external deps)
+- msgpack: `cmake -S pqc/msgpack -B pqc/msgpack/build` (no PREFIX_PATH needed; no BLAKE3/TBB)
+- static-verify: `cmake -S pqc/static-verify -B pqc/static-verify/build` (no external deps)
 
 ## Exit Codes (all tools)
 - `0` — success
