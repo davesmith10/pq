@@ -2,6 +2,7 @@
 /luke/build/
 /geordi/build/
 /scotty/build/
+/scotty/tmp/
 /obi-wan/build/
 /msgpack/build/
 /static-verify/build/

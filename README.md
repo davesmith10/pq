@@ -1,6 +1,6 @@
 # pqc — Post-Quantum Crypto Tools + Libcrystals
 
-**C++17 CLI tools and libraries for hybrid PQ+classical key management.**
+**C++17 CLI tools and libraries for hybrid classical+PQC key management.**
 
 ## What Does This Actually Do?
 
@@ -62,6 +62,16 @@ and [PASSWORD-ENC.md](PASSWORD-ENC.md) for the PWENC password-based encryption s
 
 obi-wan also provides a simple signed token with 256 bytes of space for assertions. This is used for 
 secure login with the (SAREK Secrets Vault)[https://github.com/davesmith10/sarek].
+
+`padme` Showing somehwat our flair, padme is a steganographic command-line application
+that embeds the bytes of a tray into a Portable Network Graphics (png) file. This is quite
+interesting as it visualizes the key materials.
+
+Note that the bytes are not in a *raw* condition; that would be insecure. Padme provides an 
+"encaps" (encapsulate) command that password encrypts the secret keys as it pngifies. 
+It also can "pngify" any obi-wan encrypted file.
+
+![](docs/img/padme.png?raw=true)
 
 
 # Tools
