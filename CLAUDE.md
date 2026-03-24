@@ -81,10 +81,14 @@ echo "hello" > /tmp/plain.txt
 ./pqc/obi-wan/build/obi-wan encrypt --tray /tmp/bob.tray --kdf KMAC --cipher ChaCha20 /tmp/plain.txt > /tmp/out2.armored
 ./pqc/obi-wan/build/obi-wan decrypt --tray /tmp/bob.tray /tmp/out2.armored | diff /tmp/plain.txt -
 
-# obi-wan: sign → verify (HYKE, all 4 tray types)
+# obi-wan: encrypt+sign → verify+decrypt (HYKE, all 4 tray types)
 ./pqc/scotty/build/scotty keygen --alias alice --profile level2-25519 > /tmp/alice.tray
-./pqc/obi-wan/build/obi-wan sign   --tray /tmp/alice.tray /tmp/plain.txt > /tmp/alice.hyke
-./pqc/obi-wan/build/obi-wan verify --tray /tmp/alice.tray /tmp/alice.hyke | diff /tmp/plain.txt -
+./pqc/obi-wan/build/obi-wan encrypt+sign   --tray /tmp/alice.tray /tmp/plain.txt > /tmp/alice.hyke
+./pqc/obi-wan/build/obi-wan verify+decrypt --tray /tmp/alice.tray /tmp/alice.hyke | diff /tmp/plain.txt -
+
+# obi-wan: sign → verify (pure hybrid digital signature, no encryption)
+./pqc/obi-wan/build/obi-wan sign   --tray /tmp/alice.tray --in-file /tmp/plain.txt > /tmp/plain.sig.yaml
+./pqc/obi-wan/build/obi-wan verify --tray /tmp/alice.tray --in-file /tmp/plain.txt --in-sig /tmp/plain.sig.yaml
 
 # scotty: hybrid tray keygen (crystals group, default)
 ./scotty keygen --profile level3 --alias alice                          # YAML to stdout (default)
@@ -117,12 +121,14 @@ cd dilithium/ref && make && ./test/test_dilithium3
 ## Architecture
 
 ### obi-wan Architecture
-obi-wan has two operation modes: **OBIWAN** (encrypt/decrypt using both KEM slots) and
-**HYKE** (sign/verify using all four slots — both KEMs for encryption, both sig slots for auth).
+obi-wan has three operation modes: **OBIWAN** (encrypt/decrypt using both KEM slots),
+**HYKE** (encrypt+sign/verify+decrypt using all four slots — both KEMs for encryption, both sig slots for auth),
+and **pure hybrid digital signature** (sign/verify using both sig slots only — no encryption).
 
 **Source files** (single file after the libcrystals-1.2 migration):
 - `obi-wan/src/main.cpp` — arg parsing, file I/O, and CLI handlers `cmd_encrypt`, `cmd_decrypt`,
-  `cmd_sign`, `cmd_verify`, `cmd_gentok`, `cmd_valtok`, `cmd_pwencrypt`, `cmd_pwdecrypt`.
+  `cmd_encrypt_sign`, `cmd_verify_decrypt`, `cmd_pure_sign`, `cmd_pure_verify`,
+  `cmd_gentok`, `cmd_valtok`, `cmd_pwencrypt`, `cmd_pwdecrypt`.
   All crypto delegated to `Crystals::crystals`.
 
 **Library boundary**: The library (`Crystals::crystals`) owns all crypto, KDF, wire-format
@@ -236,14 +242,16 @@ Both **scotty** and **obi-wan** use the same RPATH strategy:
 
 ## Verified Working (obi-wan)
 - All 16 encrypt/decrypt combos: {level2-25519,level2,level3,level5} × {SHAKE,KMAC} × {AES-256-GCM,ChaCha20}: OK
-- All 4 sign/verify tray types: {level2-25519,level2,level3,level5}: OK
-- YAML and msgpack tray formats both load correctly for sign/verify
-- 1MB binary file sign/verify roundtrip: OK
+- All 4 encrypt+sign/verify+decrypt (HYKE) tray types: {level2-25519,level2,level3,level5}: OK
+- YAML and msgpack tray formats both load correctly for encrypt+sign/verify+decrypt
+- 1MB binary file encrypt+sign/verify+decrypt roundtrip: OK
 - Tampered payload → "classical signature INVALID" + exit 2
 - Wrong tray type → "tray type mismatch" + exit 2; missing --tray → exit 1
 - pwencrypt/pwdecrypt: all 3 levels (512/768/1024) roundtrip OK; wrong password → exit 2; tampered binary → exit 2
-- mlkem+mldsa mk-level2, mk-level3, mk-level4: encrypt/decrypt/sign/verify OK (2026-03-23)
-- frodokem+falcon ff-level2, ff-level3: encrypt/decrypt/sign/verify OK (2026-03-23)
+- mlkem+mldsa mk-level2, mk-level3, mk-level4: encrypt/decrypt/encrypt+sign/verify+decrypt OK (2026-03-23)
+- frodokem+falcon ff-level2, ff-level3: encrypt/decrypt/encrypt+sign/verify+decrypt OK (2026-03-23)
+- Pure hybrid sign/verify: all crystals {level2-25519,level2,level3,level5}, mceliece+slhdsa {level2,level3,level4,level5}, mlkem+mldsa {mk-level2,mk-level3,mk-level4}, frodokem+falcon {ff-level2,ff-level3}: OK (2026-03-24)
+- Pure hybrid sign/verify: tampered file → exit 2; wrong tray → tray_id mismatch + exit 2; partial tray (level0/ms-level1) → exit 1; 1MB binary roundtrip OK (2026-03-24)
 
 ## padme Tool
 CLI: `padme tray-encaps --in-tray <file> --out-png <png> --pwfile /dev/stdin`
