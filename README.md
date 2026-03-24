@@ -63,8 +63,8 @@ and [PASSWORD-ENC.md](PASSWORD-ENC.md) for the PWENC password-based encryption s
 obi-wan also provides a simple signed token with 256 bytes of space for assertions. This is used for 
 secure login with the (SAREK Secrets Vault)[https://github.com/davesmith10/sarek].
 
-`padme` Showing somehwat our flair, padme is a steganographic command-line application
-that embeds the bytes of a tray into a Portable Network Graphics (png) file. This is quite
+`padme` Showing somewhat our flair, padme is a steganographic command-line application
+that embeds the bytes of a tray into a Portable Network Graphics (png) file. This is mildly
 interesting as it visualizes the key materials.
 
 Note that the bytes are not in a *raw* condition; that would be insecure. Padme provides an 
@@ -93,7 +93,26 @@ scotty unprotect --in <file> --out <file> [--password-file <file>]
 
 ### Tray Selection
 
-*This might seem a bit capricious but there's a method to the madness.*
+These might seem a bit capricious but there's a method to the madness. 
+
+`crystals` profile are public domain algorithms, fast and designed with involvement 
+from Peter Schwabe. These can be used with the X25519/Ed25519 classical EC.
+
+The McEleice library is the work of Daniel J. Bernstein and his team. The algorithm is
+intended for long-term storage - like 50 year storage. I have paired it with SLH-DSA (sphincs+)
+which is a very strong pqc, NIST approved signature algorithm.
+
+The mlkem+mldsa profile group is basically kyber+dilithium, but in the NIST approved
+form, with slightly different key sizes. This is a good alternate if NIST standardization
+is important (e.g., interoperability).
+
+The frodokem+falcon pairing is a somewhat fanciful setup. FrodoKEM make large keys
+but nowhere near as big as McEleice; and similar use-case for long-term storage. Falcon
+was selected by NIST for the 4th round, and is known for fast and small signatures.
+
+### Profile Groups and Profiles
+
+We have "profile groups" which pair algorithms, and then profiles, which are marked as "level2, level3," etc.
 
 Default group: `crystals`. Default profile: `level2-25519`.
 
@@ -363,7 +382,7 @@ All tools use the same exit code convention:
 
 ## Repository Layout
 
-Quite a bit of third-party crypto is going into libcrystals. While this is somewhat fetishistic, I guess I just like algorithms with interesting names.
+Quite a bit of third-party crypto is going into libcrystals. While this is somewhat fetishistic, I guess I just like crypto.
 
 ```
 Crystals/
