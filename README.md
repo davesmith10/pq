@@ -98,15 +98,15 @@ These might seem a bit capricious but there's a method to the madness.
 `crystals` profile are public domain algorithms, fast and designed with involvement 
 from Peter Schwabe. These can be used with the X25519/Ed25519 classical EC.
 
-The McEleice library is the work of Daniel J. Bernstein and his team. The algorithm is
+`mceleice+slhdsa` The McEleice library is the work of Daniel J. Bernstein and his team. The algorithm is
 intended for long-term storage - like 50 year storage. I have paired it with SLH-DSA (sphincs+)
 which is a very strong pqc, NIST approved signature algorithm.
 
-The mlkem+mldsa profile group is basically kyber+dilithium, but in the NIST approved
+The `mlkem+mldsa` profile group is basically kyber+dilithium, but in the NIST approved
 form, with slightly different key sizes. This is a good alternate if NIST standardization
 is important (e.g., interoperability).
 
-The frodokem+falcon pairing is a somewhat fanciful setup. FrodoKEM make large keys
+The `frodokem+falcon` pairing is a somewhat fanciful setup. FrodoKEM make large keys
 but nowhere near as big as McEleice; and similar use-case for long-term storage. Falcon
 was selected by NIST for the 4th round, and is known for fast and small signatures.
 
