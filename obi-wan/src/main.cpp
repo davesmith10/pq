@@ -844,6 +844,108 @@ static int cmd_pure_sign(const std::string& tray_path,
     return 0;
 }
 
+// ── verify command (pure hybrid signature verification) ───────────────────────
+
+static int cmd_pure_verify(const std::string& tray_path,
+                            const std::string& in_file_path,
+                            const std::string& in_sig_path)
+{
+    Tray tray;
+    try {
+        tray = load_tray(tray_path);
+    } catch (const std::exception& e) {
+        std::cerr << "Error: cannot load tray: " << e.what() << "\n";
+        return 3;
+    }
+
+    const Slot* cl_sig = find_classical_sig_slot(tray);
+    const Slot* pq_sig = find_pq_sig_slot(tray);
+
+    if (!cl_sig || !pq_sig) {
+        std::cerr << "Error: tray must contain both a classical sig slot and a PQ sig slot for verify\n";
+        return 1;
+    }
+
+    SigYaml syaml;
+    try {
+        syaml = parse_sig_yaml(read_file_text(in_sig_path));
+    } catch (const std::exception& e) {
+        std::cerr << "Error: failed to parse sig file: " << e.what() << "\n";
+        return 2;
+    }
+
+    if (syaml.tray_id != tray.id) {
+        std::cerr << "Error: tray_id mismatch (sig was made with a different tray)\n";
+        return 2;
+    }
+
+    std::vector<uint8_t> file_bytes;
+    try {
+        file_bytes = read_file(in_file_path);
+    } catch (const std::exception& e) {
+        std::cerr << "Error: " << e.what() << "\n";
+        return 3;
+    }
+
+    uint8_t uuid_bytes[16];
+    try { parse_uuid(tray.id, uuid_bytes); }
+    catch (const std::exception& e) {
+        std::cerr << "Error: failed to parse tray UUID: " << e.what() << "\n"; return 2;
+    }
+
+    std::array<uint8_t, 32> hash;
+    try { hash = sha256_bytes(file_bytes); }
+    catch (const std::exception& e) {
+        std::cerr << "Error: SHA-256 failed: " << e.what() << "\n"; return 2;
+    }
+
+    std::vector<uint8_t> m_prime;
+    m_prime.reserve(48);
+    m_prime.insert(m_prime.end(), uuid_bytes, uuid_bytes + 16);
+    m_prime.insert(m_prime.end(), hash.begin(), hash.end());
+
+    CompositeSig cs;
+    try {
+        cs = unpack_composite_sig(base64_decode(syaml.composite_sig));
+    } catch (const std::exception& e) {
+        std::cerr << "Error: malformed composite sig: " << e.what() << "\n";
+        return 2;
+    }
+
+    try {
+        if (!ec_sig::verify(cl_sig->alg_name, cl_sig->pk, m_prime, cs.sig_cl)) {
+            std::cerr << "Error: classical signature INVALID\n"; return 2;
+        }
+    } catch (const std::exception& e) {
+        std::cerr << "Error: classical signature verification failed: " << e.what() << "\n";
+        return 2;
+    }
+
+    try {
+        bool pq_ok = false;
+        if (dilithium_sig::is_pq_sig(pq_sig->alg_name))
+            pq_ok = dilithium_sig::verify(dilithium_sig::mode_from_alg(pq_sig->alg_name),
+                                          pq_sig->pk, m_prime, cs.sig_pq);
+        else if (oqs_sig::is_oqs_sig(pq_sig->alg_name))
+            pq_ok = oqs_sig::verify(pq_sig->alg_name, pq_sig->pk, m_prime, cs.sig_pq);
+        else
+            pq_ok = slhdsa_sig::verify(pq_sig->alg_name, pq_sig->pk, m_prime, cs.sig_pq);
+        if (!pq_ok) { std::cerr << "Error: PQ signature INVALID\n"; return 2; }
+    } catch (const std::exception& e) {
+        std::cerr << "Error: PQ signature verification failed: " << e.what() << "\n";
+        return 2;
+    }
+
+    std::cout << "verified: true\n"
+              << "signature_id: \"" << syaml.signature_id << "\"\n"
+              << "tray_id: \""      << tray.id             << "\"\n"
+              << "tray_alias: \""   << tray.alias          << "\"\n"
+              << "profile_group: \"" << tray.profile_group << "\"\n"
+              << "profile: \""      << tray_type_to_profile(tray.tray_type) << "\"\n"
+              << "input_file: \""   << syaml.input_file    << "\"\n";
+    return 0;
+}
+
 // ── main ──────────────────────────────────────────────────────────────────────
 
 int main(int argc, char* argv[]) {
@@ -875,6 +977,28 @@ int main(int argc, char* argv[]) {
         if (tray_path.empty()) { std::cerr << "Error: --tray is required\n"; return 1; }
         if (in_file.empty())   { std::cerr << "Error: --in-file is required\n"; return 1; }
         return cmd_pure_sign(tray_path, in_file);
+    }
+
+    if (cmd == "verify") {
+        std::string tray_path, in_file, in_sig;
+        for (int i = 2; i < argc; ++i) {
+            if (std::strcmp(argv[i], "--tray") == 0) {
+                if (++i >= argc) { std::cerr << "Error: --tray requires a filename\n"; return 1; }
+                tray_path = argv[i];
+            } else if (std::strcmp(argv[i], "--in-file") == 0) {
+                if (++i >= argc) { std::cerr << "Error: --in-file requires a filename\n"; return 1; }
+                in_file = argv[i];
+            } else if (std::strcmp(argv[i], "--in-sig") == 0) {
+                if (++i >= argc) { std::cerr << "Error: --in-sig requires a filename\n"; return 1; }
+                in_sig = argv[i];
+            } else {
+                std::cerr << "Error: unknown option '" << argv[i] << "'\n"; return 1;
+            }
+        }
+        if (tray_path.empty()) { std::cerr << "Error: --tray is required\n"; return 1; }
+        if (in_file.empty())   { std::cerr << "Error: --in-file is required\n"; return 1; }
+        if (in_sig.empty())    { std::cerr << "Error: --in-sig is required\n"; return 1; }
+        return cmd_pure_verify(tray_path, in_file, in_sig);
     }
 
     if (cmd == "pwencrypt") return cmd_pwencrypt(argc - 1, argv + 1);
