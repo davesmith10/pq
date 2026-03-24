@@ -8,6 +8,7 @@
 #include <cstdlib>
 #include <stdexcept>
 #include <openssl/rand.h>
+#include <cstdio>
 
 // ── Usage ─────────────────────────────────────────────────────────────────────
 
@@ -103,6 +104,125 @@ static const Slot* find_pq_sig_slot(const Tray& tray) {
             return &s;
     }
     return nullptr;
+}
+
+// ── Pure-sig helpers ──────────────────────────────────────────────────────────
+
+static std::array<uint8_t, 32> sha256_bytes(const std::vector<uint8_t>& data) {
+    std::array<uint8_t, 32> digest{};
+    unsigned int len = 32;
+    if (!EVP_Digest(data.data(), data.size(), digest.data(), &len, EVP_sha256(), nullptr))
+        throw std::runtime_error("SHA-256 failed");
+    return digest;
+}
+
+static std::string generate_uuid_v4() {
+    uint8_t b[16];
+    if (RAND_bytes(b, 16) != 1)
+        throw std::runtime_error("RAND_bytes failed");
+    b[6] = (b[6] & 0x0F) | 0x40; // version 4
+    b[8] = (b[8] & 0x3F) | 0x80; // variant bits
+    char buf[37];
+    std::snprintf(buf, sizeof(buf),
+        "%02x%02x%02x%02x-%02x%02x-%02x%02x-%02x%02x-%02x%02x%02x%02x%02x%02x",
+        b[0],b[1],b[2],b[3], b[4],b[5], b[6],b[7],
+        b[8],b[9], b[10],b[11],b[12],b[13],b[14],b[15]);
+    return std::string(buf);
+}
+
+static std::string tray_type_to_profile(TrayType t) {
+    switch (t) {
+        case TrayType::Level0:             return "level0";
+        case TrayType::Level1:             return "level1";
+        case TrayType::Level2_25519:       return "level2-25519";
+        case TrayType::Level2:             return "level2";
+        case TrayType::Level3:             return "level3";
+        case TrayType::Level5:             return "level5";
+        case TrayType::McEliece_Level1:    return "level1";
+        case TrayType::McEliece_Level2:    return "level2";
+        case TrayType::McEliece_Level3:    return "level3";
+        case TrayType::McEliece_Level4:    return "level4";
+        case TrayType::McEliece_Level5:    return "level5";
+        case TrayType::MlKem_Level1:       return "mk-level1";
+        case TrayType::MlKem_Level2:       return "mk-level2";
+        case TrayType::MlKem_Level3:       return "mk-level3";
+        case TrayType::MlKem_Level4:       return "mk-level4";
+        case TrayType::FrodoFalcon_Level1: return "ff-level1";
+        case TrayType::FrodoFalcon_Level2: return "ff-level2";
+        case TrayType::FrodoFalcon_Level3: return "ff-level3";
+        case TrayType::FrodoFalcon_Level4: return "ff-level4";
+        default:                           return "unknown";
+    }
+}
+
+static std::vector<uint8_t> pack_composite_sig(const std::vector<uint8_t>& sig_cl,
+                                                const std::vector<uint8_t>& sig_pq)
+{
+    std::vector<uint8_t> out;
+    out.reserve(8 + sig_cl.size() + sig_pq.size());
+    auto push_u32be = [&](uint32_t v) {
+        out.push_back((v >> 24) & 0xFF); out.push_back((v >> 16) & 0xFF);
+        out.push_back((v >>  8) & 0xFF); out.push_back((v >>  0) & 0xFF);
+    };
+    push_u32be((uint32_t)sig_cl.size());
+    out.insert(out.end(), sig_cl.begin(), sig_cl.end());
+    push_u32be((uint32_t)sig_pq.size());
+    out.insert(out.end(), sig_pq.begin(), sig_pq.end());
+    return out;
+}
+
+struct CompositeSig {
+    std::vector<uint8_t> sig_cl;
+    std::vector<uint8_t> sig_pq;
+};
+
+static CompositeSig unpack_composite_sig(const std::vector<uint8_t>& data) {
+    auto read_u32be = [](const uint8_t* p) -> uint32_t {
+        return ((uint32_t)p[0] << 24) | ((uint32_t)p[1] << 16) |
+               ((uint32_t)p[2] <<  8) | (uint32_t)p[3];
+    };
+    const uint8_t* p   = data.data();
+    const uint8_t* end = p + data.size();
+    if (p + 4 > end) throw std::runtime_error("composite sig too short");
+    uint32_t len_cl = read_u32be(p); p += 4;
+    if (p + len_cl > end) throw std::runtime_error("composite sig: len_cl overflows buffer");
+    CompositeSig cs;
+    cs.sig_cl.assign(p, p + len_cl); p += len_cl;
+    if (p + 4 > end) throw std::runtime_error("composite sig: truncated len_pq");
+    uint32_t len_pq = read_u32be(p); p += 4;
+    if (p + len_pq > end) throw std::runtime_error("composite sig: len_pq overflows buffer");
+    cs.sig_pq.assign(p, p + len_pq);
+    return cs;
+}
+
+struct SigYaml {
+    std::string signature_id;
+    std::string tray_id;
+    std::string input_file;
+    std::string composite_sig;
+};
+
+static SigYaml parse_sig_yaml(const std::string& text) {
+    SigYaml r;
+    std::istringstream ss(text);
+    std::string line;
+    while (std::getline(ss, line)) {
+        auto pos = line.find(": ");
+        if (pos == std::string::npos) continue;
+        std::string key = line.substr(0, pos);
+        std::string val = line.substr(pos + 2);
+        if (val.size() >= 2 && val.front() == '"' && val.back() == '"')
+            val = val.substr(1, val.size() - 2);
+        if      (key == "signature_id")  r.signature_id  = val;
+        else if (key == "tray_id")       r.tray_id       = val;
+        else if (key == "input_file")    r.input_file    = val;
+        else if (key == "composite_sig") r.composite_sig = val;
+    }
+    if (r.tray_id.empty())
+        throw std::runtime_error("sig YAML missing required field: tray_id");
+    if (r.composite_sig.empty())
+        throw std::runtime_error("sig YAML missing required field: composite_sig");
+    return r;
 }
 
 // ── encrypt command ───────────────────────────────────────────────────────────
