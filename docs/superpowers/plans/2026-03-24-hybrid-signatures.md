@@ -795,7 +795,7 @@ echo "exit: $?"
 ```
 Expected: `Error: unknown option '--in-sig'`; exit 1.
 
-- [ ] **Step 8: Confirm mceliece+slhdsa level1 (PQ-only) rejected**
+- [ ] **Step 9: Confirm mceliece+slhdsa level1 (PQ-only) rejected**
 
 ```bash
 ./pqc/scotty/build/scotty keygen --group mceliece+slhdsa --alias test --profile level1 > /tmp/mc1.tray
