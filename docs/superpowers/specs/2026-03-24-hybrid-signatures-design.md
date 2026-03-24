@@ -2,7 +2,7 @@
 
 **Date:** 2026-03-24
 **Status:** Approved
-**Scope:** `@pqc/obi-wan` CLI + `@pq/libcrystals-1.2`
+**Scope:** `@pqc/obi-wan` CLI only. No changes to `libcrystals-1.2` — all required primitives already present in the installed library.
 
 ---
 
@@ -30,7 +30,7 @@ Internal C++ function renames in `obi-wan/src/main.cpp`:
 - `cmd_verify` → `cmd_verify_decrypt`
 - New: `cmd_pure_sign`, `cmd_pure_verify`
 
-No changes to `libcrystals-1.2` — all required primitives already exist.
+No changes to the library — all required primitives already exist.
 
 ---
 
@@ -40,6 +40,12 @@ Both `sign` and `verify` require a tray with **both** a classical signature slot
 signature slot. Partial-key trays (level0 classical-only, level1 PQ-only, mceliece+slhdsa
 level1 PQ-only) are rejected with exit 1 and a clear error message. This is consistent with
 the existing `encrypt+sign` / `verify+decrypt` behaviour.
+
+Supported profile groups and their eligible profiles (those with both sig slots):
+- `crystals`: level2-25519, level2, level3, level5
+- `mceliece+slhdsa`: level2, level3, level4, level5
+- `mlkem+mldsa`: mk-level2, mk-level3, mk-level4 (PQ sig via `oqs_sig::sign/verify`)
+- `frodokem+falcon`: ff-level2, ff-level3 (PQ sig via `oqs_sig::sign/verify`)
 
 ---
 
@@ -90,7 +96,10 @@ obi-wan sign --tray <path> --in-file <path>
 6. Compute `SHA-256(file_bytes)` → 32-byte hash via `EVP_digest`.
 7. Build `M' = uuid_bytes(16) || hash(32)`.
 8. Sign with classical: `ec_sig::sign(cl_sig->alg_name, cl_sig->sk, M', sig_cl)`.
-9. Sign with PQ: dispatch to `dilithium_sig::sign` / `slhdsa_sig::sign` / `oqs_sig::sign`.
+9. Sign with PQ: same three-way dispatch used by the existing `cmd_encrypt_sign`:
+   `dilithium_sig::is_pq_sig()` → `dilithium_sig::sign`; `oqs_sig::is_oqs_sig()` → `oqs_sig::sign`;
+   else → `slhdsa_sig::sign`. The dispatch logic is duplicated inline in `cmd_pure_sign`
+   (consistent with the existing single-file pattern; no shared helper extracted).
 10. Pack composite: `u32be(len_cl) || sig_cl || u32be(len_pq) || sig_pq`.
 11. Base64-encode composite.
 12. Emit YAML to stdout.
@@ -109,7 +118,13 @@ composite_sig: "BAAAAJQB3f2a1..."
 
 `profile` is derived from `tray.tray_type` via a local `tray_type_to_profile(TrayType)`
 helper in `main.cpp` (switch statement mapping enum values to canonical level name strings,
-e.g. `Level3` → `"level3"`, `Level2_25519` → `"level2-25519"`, `McEliece_Level2` → `"level2"`).
+e.g. `Level3` → `"level3"`, `Level2_25519` → `"level2-25519"`, `McEliece_Level2` → `"level2"`,
+`MlKem_Level2` → `"mk-level2"`, `FrodoFalcon_Level2` → `"ff-level2"`).
+`profile_group` is read directly from `tray.profile_group` (already a string field on `Tray`).
+
+`signature_id` is an audit field only. It is not incorporated into `M'` and plays no role
+in the cryptographic verification. Its purpose is to give each signature bundle a unique,
+trackable identity.
 
 ---
 
@@ -124,16 +139,23 @@ obi-wan verify --tray <path> --in-file <path> --in-sig <path>
 ### Steps
 
 1. Load tray; find classical sig slot and PQ sig slot — reject if either missing (exit 1).
-2. Parse signature YAML from `--in-sig`.
+2. Parse signature YAML from `--in-sig`; extract `tray_id`, `composite_sig`, `signature_id`,
+   and `input_file`. Missing `tray_id` or `composite_sig` → stderr + exit 2.
 3. Cross-check `tray_id` in YAML against `tray.id` — mismatch → stderr + exit 2.
 4. Read file bytes from `--in-file`.
-5. Parse tray UUID → 16 raw bytes via `parse_uuid()`.
+5. Parse tray UUID → 16 raw bytes via `parse_uuid()` on `tray.id`.
 6. Compute `SHA-256(file_bytes)` → 32-byte hash.
 7. Build `M' = uuid_bytes(16) || hash(32)`.
-8. Base64-decode `composite_sig`; parse `u32be(len_cl) || sig_cl || u32be(len_pq) || sig_pq`.
-9. Verify classical: `ec_sig::verify(alg, pk, M', sig_cl)` — fail → stderr + exit 2.
-10. Verify PQ: dispatch to `dilithium_sig::verify` / `slhdsa_sig::verify` / `oqs_sig::verify` — fail → stderr + exit 2.
-11. Both pass → emit YAML to stdout + exit 0.
+8. Base64-decode `composite_sig` — failure (invalid characters) → stderr + exit 2.
+   Parse `u32be(len_cl) || sig_cl || u32be(len_pq) || sig_pq`; if `len_cl` or `len_pq`
+   exceeds the remaining buffer, treat as malformed → stderr + exit 2.
+9. Verify classical: `ec_sig::verify(cl_sig->alg_name, cl_sig->pk, M', sig_cl)` — `alg_name`
+   and `pk` come from the loaded tray's classical sig slot, not from the YAML. Fail → exit 2.
+10. Verify PQ: same three-way dispatch as `cmd_encrypt_sign` / `cmd_pure_sign`:
+    `dilithium_sig::is_pq_sig()` → `dilithium_sig::verify`; `oqs_sig::is_oqs_sig()` → `oqs_sig::verify`;
+    else → `slhdsa_sig::verify`. All use `pq_sig->alg_name` and `pq_sig->pk` from the tray. Fail → exit 2.
+11. Both pass → emit YAML to stdout (echoing `signature_id` and `input_file` from parsed sig YAML,
+    remaining fields from loaded tray) + exit 0.
 
 ### Output YAML (on success)
 
@@ -147,6 +169,9 @@ profile: "level3"
 input_file: "document.pdf"
 ```
 
+`composite_sig` is intentionally omitted from the verify output — the caller retains the
+original sig file.
+
 ---
 
 ## Error Handling
@@ -154,13 +179,16 @@ input_file: "document.pdf"
 | Condition | Exit |
 |---|---|
 | Missing/unknown flag or command | 1 |
-| Missing `--tray`, `--in-file`, or `--in-sig` | 1 |
+| Missing `--tray` or `--in-file` (either command); missing `--in-sig` (`verify` only) | 1 |
+| Unknown flag passed (e.g. `--in-sig` passed to `sign`) | 1 |
+| Protected (secure-tray) YAML passed as `--tray` — `load_tray` rejects it | 3 |
 | Tray missing classical or PQ sig slot | 1 |
 | Public-only tray passed to `sign` | 1 |
 | `tray_id` mismatch | 2 |
 | Classical signature invalid | 2 |
 | PQ signature invalid | 2 |
-| Malformed composite sig bytes | 2 |
+| Malformed composite sig bytes (including out-of-bounds length fields) | 2 |
+| Sig YAML present but missing a required field (`tray_id`, `composite_sig`) | 2 |
 | Any crypto operation throws | 2 |
 | File or YAML unreadable | 3 |
 
@@ -171,10 +199,21 @@ All errors print a descriptive message to stderr before exiting.
 ## YAML Parsing
 
 The signature YAML (`--in-sig`) is a simple flat document. Rather than pulling in yaml-cpp
-(which is already in libcrystals but not directly in obi-wan's main.cpp), parse the five
-required fields (`tray_id`, `input_file`, `composite_sig`, `signature_id`) with lightweight
-line-by-line key: value parsing — consistent with the fact that obi-wan currently emits YAML
-by hand (no yaml-cpp in main.cpp).
+(which is already in libcrystals but not directly in obi-wan's main.cpp), parse with
+lightweight line-by-line `key: value` parsing — consistent with the fact that obi-wan
+currently emits YAML by hand (no yaml-cpp in main.cpp).
+
+The verifier requires exactly two fields for cryptographic correctness:
+- `tray_id` — for cross-checking against the loaded tray
+- `composite_sig` — the signature blob
+
+The remaining fields (`signature_id`, `tray_alias`, `profile_group`, `profile`, `input_file`)
+are informational. The verifier reads `signature_id` and `input_file` to echo them in its
+output YAML; `tray_alias`, `profile_group`, and `profile` may be ignored during parsing.
+`profile_group` is read directly from `tray.profile_group` (a field on the `Tray` struct)
+for the output YAML — no additional helper is needed for it.
+
+A missing `tray_id` or `composite_sig` field is treated as a malformed sig file → exit 2.
 
 ---
 
@@ -206,6 +245,11 @@ obi-wan verify+decrypt --tray /tmp/alice.tray /tmp/doc.hyke | diff /tmp/doc.txt 
 # Partial tray → exit 1 with clear error
 scotty keygen --alias cl-only --profile level0 > /tmp/cl.tray
 obi-wan sign --tray /tmp/cl.tray --in-file /tmp/doc.txt   # expect exit 1
+
+# Tampered composite_sig blob → exit 2 (both sig checks fail)
+cp /tmp/doc.sig.yaml /tmp/doc.sig.corrupt.yaml
+# manually corrupt one base64 character in composite_sig field
+obi-wan verify --tray /tmp/alice.tray --in-file /tmp/doc.txt --in-sig /tmp/doc.sig.corrupt.yaml
 
 # 1MB binary file roundtrip
 dd if=/dev/urandom of=/tmp/big.bin bs=1M count=1
