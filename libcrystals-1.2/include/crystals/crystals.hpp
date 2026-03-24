@@ -52,7 +52,7 @@ struct Tray {                          // @api-stable v1.0
     int version = 1;
     std::string alias;
     TrayType tray_type;
-    std::string profile_group;        // always "crystals"
+    std::string profile_group;
     std::string type_str;             // "tray" or "secure-tray"
     std::string id;                   // UUID v8
     bool is_public = false;
