@@ -16,8 +16,10 @@ static void print_usage(const char* prog) {
         "Usage:\n"
         "  " << prog << " encrypt --tray <file> [--kdf SHAKE|KMAC] [--cipher AES-256-GCM|ChaCha20] <target-file>\n"
         "  " << prog << " decrypt --tray <file> <target-file>\n"
-        "  " << prog << " sign    --tray <file> <target-file>\n"
-        "  " << prog << " verify  --tray <file> <target-file>\n"
+        "  " << prog << " encrypt+sign --tray <file> <target-file>\n"
+        "  " << prog << " verify+decrypt --tray <file> <target-file>\n"
+        "  " << prog << " sign    --tray <file> --in-file <file>\n"
+        "  " << prog << " verify  --tray <file> --in-file <file> --in-sig <file>\n"
         "  " << prog << " gentok  --tray <file> --data <string> [--ttl <seconds>]\n"
         "  " << prog << " valtok  --tray <file> [token-file]\n"
         "  " << prog << " pwencrypt [--level 512|768|1024] [--scrypt-n 20] [--pwfile <file>] <infile> <outfile>\n"
@@ -31,8 +33,10 @@ static void print_usage(const char* prog) {
         "\n"
         "  encrypt:   reads <target-file>, writes OBIWAN armored ciphertext to stdout\n"
         "  decrypt:   reads armored <target-file>, writes plaintext to stdout\n"
-        "  sign:      encrypt-and-sign using all 4 tray slots; writes HYKE armor to stdout\n"
-        "  verify:    verify both signatures and decrypt HYKE file; writes plaintext to stdout\n"
+        "  encrypt+sign: encrypt-and-sign using all 4 tray slots; writes HYKE armor to stdout\n"
+        "  verify+decrypt: verify both signatures and decrypt HYKE file; writes plaintext to stdout\n"
+        "  sign:      hybrid digital signature (no encryption); writes sig YAML to stdout\n"
+        "  verify:    verify hybrid composite signature; writes verification YAML to stdout\n"
         "  gentok:    generate a signed token; requires level2 tray; writes armor to stdout\n"
         "  valtok:    validate a token; writes data to stdout; reads stdin if no file given\n"
         "  pwencrypt: password-based encryption (ephemeral Kyber + scrypt); no tray required\n"
@@ -291,10 +295,10 @@ static int cmd_decrypt(const std::string& tray_path,
     return 0;
 }
 
-// ── sign command ──────────────────────────────────────────────────────────────
+// ── encrypt+sign command ─────────────────────────────────────────────────────
 
-static int cmd_sign(const std::string& tray_path,
-                     const std::string& target_path)
+static int cmd_encrypt_sign(const std::string& tray_path,
+                              const std::string& target_path)
 {
     // Load tray
     Tray tray;
@@ -459,10 +463,10 @@ static int cmd_sign(const std::string& tray_path,
     return 0;
 }
 
-// ── verify command ────────────────────────────────────────────────────────────
+// ── verify+decrypt command ────────────────────────────────────────────────────
 
-static int cmd_verify(const std::string& tray_path,
-                       const std::string& target_path)
+static int cmd_verify_decrypt(const std::string& tray_path,
+                               const std::string& target_path)
 {
     // Load tray
     Tray tray;
@@ -696,7 +700,7 @@ int main(int argc, char* argv[]) {
         return 0;
     }
 
-    if (cmd != "encrypt" && cmd != "decrypt" && cmd != "sign" && cmd != "verify") {
+    if (cmd != "encrypt" && cmd != "decrypt" && cmd != "encrypt+sign" && cmd != "verify+decrypt") {
         std::cerr << "Error: unknown command '" << cmd << "'\n";
         print_usage(argv[0]);
         return 1;
@@ -769,9 +773,9 @@ int main(int argc, char* argv[]) {
         return cmd_encrypt(tray_path, target_path, kdf_alg, cipher_alg);
     } else if (cmd == "decrypt") {
         return cmd_decrypt(tray_path, target_path);
-    } else if (cmd == "sign") {
-        return cmd_sign(tray_path, target_path);
+    } else if (cmd == "encrypt+sign") {
+        return cmd_encrypt_sign(tray_path, target_path);
     } else {
-        return cmd_verify(tray_path, target_path);
+        return cmd_verify_decrypt(tray_path, target_path);
     }
 }
