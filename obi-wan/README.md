@@ -8,14 +8,16 @@ Dilithium signature, or McEliece KEM + SLH-DSA signature) at the chosen security
 ## Commands
 
 ```
-obi-wan encrypt --tray <file> [--kdf SHAKE|KMAC] [--cipher AES-256-GCM|ChaCha20] <target-file>
-obi-wan decrypt --tray <file> <target-file>
-obi-wan sign    --tray <file> <target-file>
-obi-wan verify  --tray <file> <target-file>
-obi-wan gentok  --tray <file> --data <string> [--ttl <seconds>]
-obi-wan valtok  --tray <file> [token-file]
-obi-wan pwencrypt [--level 512|768|1024] [--scrypt-n 20] [--pwfile <file>] <infile> <outfile>
-obi-wan pwdecrypt [--pwfile <file>] <infile> <outfile>
+obi-wan encrypt        --tray <file> [--kdf SHAKE|KMAC] [--cipher AES-256-GCM|ChaCha20] <target-file>
+obi-wan decrypt        --tray <file> <target-file>
+obi-wan encrypt+sign   --tray <file> <target-file>
+obi-wan verify+decrypt --tray <file> <target-file>
+obi-wan sign           --tray <file> --in-file <file>
+obi-wan verify         --tray <file> --in-file <file> --in-sig <file>
+obi-wan gentok         --tray <file> --data <string> [--ttl <seconds>]
+obi-wan valtok         --tray <file> [token-file]
+obi-wan pwencrypt      [--level 512|768|1024] [--scrypt-n 20] [--pwfile <file>] <infile> <outfile>
+obi-wan pwdecrypt      [--pwfile <file>] <infile> <outfile>
 ```
 
 ### encrypt / decrypt
@@ -34,7 +36,7 @@ Output is written to stdout as a PEM-armored `OBIWAN ENCRYPTED FILE`.
 
 Tray files are accepted in either YAML or binary msgpack format (auto-detected).
 
-### sign / verify
+### encrypt+sign / verify+decrypt (HYKE)
 
 Encrypts and signs a file using all four slots in the tray: both KEM slots protect the
 symmetric key (same as `encrypt`), and both signature slots (Ed25519/ECDSA + Dilithium
@@ -42,9 +44,52 @@ or SLH-DSA) sign the header and encrypted payload.
 
 Output is written to stdout as a PEM-armored `HYKE SIGNED FILE`.
 
-`verify` checks both signatures before decrypting. Any tampering causes exit code 2.
+`verify+decrypt` checks both signatures before decrypting. Any tampering causes exit code 2.
 
 Requires a tray with all four slots present (hybrid levels only — not level0/level1).
+
+### sign / verify (pure hybrid digital signature)
+
+Signs an arbitrary file without encrypting it. Both the classical signature slot
+(Ed25519/ECDSA) and the PQ signature slot (Dilithium/ML-DSA/Falcon/SLH-DSA) sign the
+same message digest, producing a single composite signature.
+
+```
+obi-wan sign   --tray <file> --in-file <file>
+obi-wan verify --tray <file> --in-file <file> --in-sig <file>
+```
+
+**Algorithm:** The signed message is `M' = tray_uuid(16 bytes) || SHA-256(file_bytes)`.
+Using the tray UUID as a domain separator provides per-tray uniqueness, preventing
+cross-tray signature confusion between two trays of the same profile.
+
+`sign` writes a YAML document to stdout:
+
+```yaml
+signature_id: "a1b2c3d4-..."    # random UUID v4, audit identifier only
+tray_id:      "3f2a1b4c-..."    # tray UUID used for domain separation
+tray_alias:   "alice"
+profile_group: "crystals"
+profile:      "level2-25519"
+input_file:   "document.pdf"
+composite_sig: "BAAAAJQB..."    # base64: u32be(len_cl) || sig_cl || u32be(len_pq) || sig_pq
+```
+
+`verify` reads the `--in-sig` YAML, recomputes `M'` from the tray and the file, and
+checks both signatures. Outputs a YAML confirmation (without `composite_sig`) on success:
+
+```yaml
+verified: true
+signature_id: "a1b2c3d4-..."
+tray_id:      "3f2a1b4c-..."
+tray_alias:   "alice"
+profile_group: "crystals"
+profile:      "level2-25519"
+input_file:   "document.pdf"
+```
+
+Requires a tray with **both** a classical sig slot and a PQ sig slot. Partial-key trays
+(level0 classical-only, level1 PQ-only) are rejected with exit 1.
 
 ### gentok / valtok
 
@@ -107,7 +152,7 @@ Trays are created by [scotty](../scotty/) and passed via `--tray`.
 | ms-level5  | P-256         | mceliece8192128f    | ECDSA P-256   | SLH-DSA-SHAKE-256f   |
 
 `encrypt`/`decrypt` require at least one classical and one PQ KEM slot (hybrid levels).
-`sign`/`verify` require all four slots (hybrid levels only — ms-level1 and crystals level1 are rejected).
+`encrypt+sign`/`verify+decrypt` and `sign`/`verify` both require at least one classical sig slot and one PQ sig slot (hybrid levels only — ms-level1 and crystals level1 are rejected).
 `gentok`/`valtok` are crystals-only (level2 or higher).
 
 ## Wire Formats
@@ -123,7 +168,7 @@ Trays are created by [scotty](../scotty/) and passed via `--tray`.
 
 Wrapped in `-----BEGIN/END OBIWAN ENCRYPTED FILE-----` PEM armor (base64, 64-char lines).
 
-### HYKE (sign)
+### HYKE (encrypt+sign)
 
 ```
 "HYKE" (4B) | version (2B) | tray_id (1B) | flags (1B)
@@ -142,6 +187,16 @@ are stored as 32-bit big-endian values, so the wire format accommodates McEliece
 ciphertexts (96–208 B) and SLH-DSA signatures (17–50 KB) without change.
 
 Wrapped in `-----BEGIN/END HYKE SIGNED FILE-----` PEM armor.
+
+### Composite Sig (sign)
+
+```
+u32be(len_classical) | sig_classical | u32be(len_pq) | sig_pq
+```
+
+Base64-encoded in the `composite_sig` field of the output YAML. Both components are
+always present — partial-key trays are rejected before signing. Length prefixes
+accommodate variable-length PQ signatures (e.g. Falcon via `oqs_sig`).
 
 ### PWENC (pwencrypt)
 
@@ -197,16 +252,22 @@ obi-wan decrypt --tray alice.tray message.armored > recovered.txt
 # Encrypt with KMAC + ChaCha20
 obi-wan encrypt --tray alice.tray --kdf KMAC --cipher ChaCha20 plaintext.txt > message.armored
 
-# Sign / verify
-obi-wan sign   --tray alice.tray document.pdf > document.hyke
-obi-wan verify --tray alice.tray document.hyke > document_out.pdf
+# Encrypt and sign / verify and decrypt (HYKE — all-in-one encrypt+auth)
+obi-wan encrypt+sign   --tray alice.tray document.pdf > document.hyke
+obi-wan verify+decrypt --tray alice.tray document.hyke > document_out.pdf
+
+# Pure hybrid digital signature (sign only — no encryption)
+obi-wan sign   --tray alice.tray --in-file document.pdf > document.sig.yaml
+obi-wan verify --tray alice.tray --in-file document.pdf --in-sig document.sig.yaml
 
 # mceliece+slhdsa tray
 scotty keygen --group mceliece+slhdsa --profile level2 --alias bob --out bob.tray
-obi-wan encrypt --tray bob.tray plaintext.txt > message.armored
-obi-wan decrypt --tray bob.tray message.armored > recovered.txt
-obi-wan sign    --tray bob.tray document.pdf > document.hyke
-obi-wan verify  --tray bob.tray document.hyke > document_out.pdf
+obi-wan encrypt        --tray bob.tray plaintext.txt > message.armored
+obi-wan decrypt        --tray bob.tray message.armored > recovered.txt
+obi-wan encrypt+sign   --tray bob.tray document.pdf > document.hyke
+obi-wan verify+decrypt --tray bob.tray document.hyke > document_out.pdf
+obi-wan sign           --tray bob.tray --in-file document.pdf > document.sig.yaml
+obi-wan verify         --tray bob.tray --in-file document.pdf --in-sig document.sig.yaml
 
 # Password encryption (no tray needed)
 obi-wan pwencrypt secret.txt secret.pwenc          # prompts for password

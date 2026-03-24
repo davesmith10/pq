@@ -32,36 +32,32 @@ is not that different from PKCS12, but it does have the virtue of leaving the pu
 in full view. For things like signature verification.
 
 `obi-wan` is a command-line application that uses the trays to do encryption and digital signature.
-It has three basic algorithms: 
+It has four basic operations:
 
-- encrypt / decrypt
+- **encrypt / decrypt** — Encrypts a file using both the classical KEM slot and the PQ KEM slot
+  from the tray. The two shared secrets are combined via a hybrid KDF; the result encrypts the
+  payload with the chosen symmetric cipher. Output: PEM-armored `OBIWAN ENCRYPTED FILE`.
 
-Encrypts a file using both the classical KEM slot and the PQ KEM slot from the tray. 
-The two shared secrets are combined via a hybrid KDF; the result encrypts the payload with the 
-chosen symmetric cipher.
+- **encrypt+sign / verify+decrypt** (HYKE) — Encrypts and signs a file using all four slots in
+  the tray: both KEM slots protect the symmetric key, and both signature slots (Ed25519/ECDSA +
+  Dilithium or SLH-DSA) authenticate the header and encrypted payload. Output: PEM-armored
+  `HYKE SIGNED FILE`.
 
-Output is written to stdout as a PEM-armored `OBIWAN ENCRYPTED FILE`.
+- **sign / verify** (pure hybrid digital signature) — Signs an arbitrary file without encrypting
+  it. Both the classical and PQ signature slots sign `M' = tray_uuid || SHA-256(file)`, producing
+  a single composite signature. Output: YAML document containing the base64-encoded composite sig
+  and metadata. Verification reads the YAML and recomputes the digest from the tray and file.
 
-- encrypt and sign
-
-Encrypts and signs a file using all four slots in the tray: both KEM slots protect the
-symmetric key (same as `encrypt`), and both signature slots (Ed25519/ECDSA + Dilithium
-or SLH-DSA) sign the header and encrypted payload.
-
-Output is written to stdout as a PEM-armored `HYKE SIGNED FILE`.
-
-- password encrypt
-
-The password scheme does some interesting things and is probably the most secure password-based
-algorithm in the world due to it's hybrid, layered design. 
+- **password encrypt / decrypt** — Password-based encryption without a tray. Generates an
+  ephemeral Kyber keypair; the secret key is wrapped with scrypt, and the plaintext is encrypted
+  with the Kyber shared secret. Probably the most secure password-based scheme in the world due
+  to its hybrid, layered design.
 
 See [ALGORITHMS.md](ALGORITHMS.md) for details on the OBIWAN and HYKE hybrid algorithms,
 and [PASSWORD-ENC.md](PASSWORD-ENC.md) for the PWENC password-based encryption scheme.
 
-- tokens
-
-obi-wan also provides a simple signed token with 256 bytes of space for assertions. This is used for 
-secure login with the (SAREK Secrets Vault)[https://github.com/davesmith10/sarek].
+- **tokens** — obi-wan also provides a simple signed token with 256 bytes of space for
+  assertions. Used for secure login with the [SAREK Secrets Vault](https://github.com/davesmith10/sarek).
 
 `padme` Showing somewhat our flair, padme is a steganographic command-line application
 that embeds the bytes of a tray into a Portable Network Graphics (png) file. This is mildly
@@ -164,27 +160,27 @@ With `--out`, written to `<name>.pub.<ext>`; without `--out`, both YAML document
 
 ## obi-wan — Hybrid KEM Encryption and Signing
 
-Encrypts and authenticates arbitrary files using a scotty tray. Two operation
-modes — **OBIWAN** (encrypt-only) and **HYKE** (encrypt-and-sign).
+Encrypts and authenticates arbitrary files using a scotty tray. Three operation
+modes — **OBIWAN** (encrypt-only), **HYKE** (encrypt-and-sign), and **pure hybrid
+digital signature** (sign/verify without encryption).
 
 #### Tray compatibility
 
 `encrypt/decrypt` requires at least one classical KEM slot and one PQ KEM slot.
-`sign/verify` additionally requires both signature slots. PQ-only trays (level1,
-mk-level1, ff-level1, mceliece+slhdsa level1) are missing the classical slots and
-cannot be used with obi-wan.
+`encrypt+sign`/`verify+decrypt` and `sign`/`verify` additionally require both signature
+slots. PQ-only trays (level1, mk-level1, ff-level1, mceliece+slhdsa level1) are rejected.
 
-| Group            | Profiles          | encrypt/decrypt | sign/verify |
-|------------------|-------------------|:---------------:|:-----------:|
-| crystals         | level2-25519, level2, level3, level5 | ✓ | ✓ |
-| crystals         | level0 (classical only)              | ✗ | ✗ |
-| crystals         | level1 (PQ only)                     | ✗ | ✗ |
-| mceliece+slhdsa  | level2, level3, level4, level5       | ✓ | ✓ |
-| mceliece+slhdsa  | level1 (PQ only)                     | ✗ | ✗ |
-| mlkem+mldsa      | mk-level2, mk-level3, mk-level4      | ✓ | ✓ |
-| mlkem+mldsa      | mk-level1 (PQ only)                  | ✗ | ✗ |
-| frodokem+falcon  | ff-level2, ff-level3, ff-level4      | ✓ | ✓ |
-| frodokem+falcon  | ff-level1 (PQ only)                  | ✗ | ✗ |
+| Group            | Profiles                             | encrypt/decrypt | encrypt+sign / verify+decrypt | sign / verify |
+|------------------|--------------------------------------|:---------------:|:-----------------------------:|:-------------:|
+| crystals         | level2-25519, level2, level3, level5 | ✓ | ✓ | ✓ |
+| crystals         | level0 (classical only)              | ✗ | ✗ | ✗ |
+| crystals         | level1 (PQ only)                     | ✗ | ✗ | ✗ |
+| mceliece+slhdsa  | level2, level3, level4, level5       | ✓ | ✓ | ✓ |
+| mceliece+slhdsa  | level1 (PQ only)                     | ✗ | ✗ | ✗ |
+| mlkem+mldsa      | mk-level2, mk-level3, mk-level4      | ✓ | ✓ | ✓ |
+| mlkem+mldsa      | mk-level1 (PQ only)                  | ✗ | ✗ | ✗ |
+| frodokem+falcon  | ff-level2, ff-level3, ff-level4      | ✓ | ✓ | ✓ |
+| frodokem+falcon  | ff-level1 (PQ only)                  | ✗ | ✗ | ✗ |
 
 `gentok`/`valtok` requires an ECDSA P-256 slot specifically: crystals `level2`,
 or mceliece+slhdsa `level2`/`level5`.
@@ -233,19 +229,19 @@ Security is designed so that recovering the plaintext requires both a break of s
 (to recover the shared secret without the secret key). See [PASSWORD-ENC.md](PASSWORD-ENC.md)
 for full design rationale and wire format.
 
-#### sign / verify (HYKE)
+#### encrypt+sign / verify+decrypt (HYKE)
 
 Encrypt-and-sign using **all four slots** from a full tray: both KEM slots for
 encryption, both signature slots for authentication. Provides hybrid classical +
 post-quantum confidentiality and authenticity in a single operation.
 
 ```
-obi-wan sign   --tray <file> <target-file>
-obi-wan verify --tray <file> <target-file>
+obi-wan encrypt+sign   --tray <file> <target-file>
+obi-wan verify+decrypt --tray <file> <target-file>
 ```
 
-- `sign` requires a tray with all 4 slots including the signing secret keys
-- `verify` requires a tray with all 4 slots including the KEM secret keys
+- `encrypt+sign` requires a tray with all 4 slots including the signing secret keys
+- `verify+decrypt` requires a tray with all 4 slots including the KEM secret keys
 - Both classical (Ed25519 / ECDSA) and PQ (Dilithium / ML-DSA / Falcon) signatures are verified before decryption
 
 Output armor: `-----BEGIN/END HYKE SIGNED FILE-----`
@@ -272,6 +268,42 @@ ctx = KMAC256(key=pk_classical, msg=pk_pq || "obi-wan-hybrid-sig-v1", outlen=512
 
 Security requires breaking **both** the classical and post-quantum KEMs (for
 confidentiality) and **both** the classical and PQ signatures (for authenticity).
+
+#### sign / verify (pure hybrid digital signature)
+
+Signs an arbitrary document without encrypting it. Useful when confidentiality is handled
+separately (e.g., the document is already at rest in encrypted storage) and only
+authenticity and integrity are needed.
+
+```
+obi-wan sign   --tray <file> --in-file <file>
+obi-wan verify --tray <file> --in-file <file> --in-sig <file>
+```
+
+**Algorithm**: `M' = tray_uuid(16B) || SHA-256(file_bytes)` is signed independently by
+both the classical slot (Ed25519 or ECDSA) and the PQ slot (Dilithium / ML-DSA /
+Falcon / SLH-DSA). The two signatures are packed as
+`u32be(len_cl) || sig_cl || u32be(len_pq) || sig_pq` and base64-encoded into the
+`composite_sig` field of the output YAML.
+
+Using the tray UUID as a domain separator provides per-tray uniqueness, preventing
+cross-tray signature confusion between two trays of the same profile type.
+
+`sign` outputs:
+
+```yaml
+signature_id:  "..."  # random UUID v4, audit identifier only
+tray_id:       "..."  # tray UUID (used as domain separator in M')
+tray_alias:    "alice"
+profile_group: "crystals"
+profile:       "level2-25519"
+input_file:    "document.pdf"
+composite_sig: "BAAAA..."  # base64-encoded composite sig
+```
+
+`verify` reads the `--in-sig` YAML, cross-checks `tray_id` against the loaded tray,
+recomputes `M'`, and verifies both signatures. Outputs `verified: true` plus the
+same metadata fields on success (without `composite_sig`). Any failure exits 2.
 
 ### msgpack — Tray Binary Encoding
 
