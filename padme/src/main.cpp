@@ -505,29 +505,14 @@ static std::string get_password_decaps(const std::string& pwfile) {
 
 // ── Output helpers ────────────────────────────────────────────────────────────
 
-static bool has_yaml_ext(const std::string& path) {
-    auto dot = path.rfind('.');
-    if (dot == std::string::npos) return false;
-    std::string ext = path.substr(dot);
-    return ext == ".yaml" || ext == ".yml";
-}
-
-// Write tray to file: YAML if path ends in .yaml/.yml, msgpack otherwise.
-// Returns false and prints error on failure.
+// Write tray to file in YAML format. Returns false and prints error on failure.
 static bool write_tray_file(const Tray& tray, const std::string& path, const char* cmd) {
-    if (has_yaml_ext(path)) {
-        try {
-            std::ofstream f(path);
-            if (!f) { std::cerr << "Error: cannot open " << path << " for writing\n"; return false; }
-            f << emit_tray_yaml(tray);
-        } catch (const std::exception& e) {
-            std::cerr << "Error: YAML write failed: " << e.what() << "\n"; return false;
-        }
-    } else {
-        try { tray_mp::pack_to_file(tray, path); }
-        catch (const std::exception& e) {
-            std::cerr << "Error: msgpack write failed: " << e.what() << "\n"; return false;
-        }
+    try {
+        std::ofstream f(path);
+        if (!f) { std::cerr << "Error: cannot open " << path << " for writing\n"; return false; }
+        f << emit_tray_yaml(tray);
+    } catch (const std::exception& e) {
+        std::cerr << "Error: YAML write failed: " << e.what() << "\n"; return false;
     }
     std::cout << cmd << ": tray '" << tray.alias << "' \xe2\x86\x92 " << path
               << " (" << tray.slots.size() << " slots)\n";
@@ -954,13 +939,13 @@ static void print_usage(const char* prog) {
         "  pngout       Recover an armored file from a pngify PNG\n"
         "\n"
         "tray-encaps options:\n"
-        "  --in-tray  <file>      Input tray (YAML or msgpack)\n"
+        "  --in-tray  <file>      Input tray (YAML)\n"
         "  --out-png  <file.png>  Output PNG (default: <alias>_enc.png)\n"
         "  --pwfile   <file>      Read password from file (prompts if omitted)\n"
         "\n"
         "tray-decaps options:\n"
         "  --in-png   <file.png>  Input encaps PNG\n"
-        "  --out-tray <file>      Output tray: YAML (.yaml/.yml) or msgpack (default: YAML to stdout)\n"
+        "  --out-tray <file>      Output tray (YAML format)\n"
         "  --pwfile   <file>      Read password from file (prompts if omitted)\n"
         "\n"
         "pngify options:\n"
