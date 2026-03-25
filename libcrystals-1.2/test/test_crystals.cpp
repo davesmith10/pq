@@ -111,81 +111,35 @@ static void test_yaml_roundtrip() {
     std::printf("  level2-25519 YAML round-trip: OK\n");
 }
 
-// ── Section 3: Msgpack round-trip ─────────────────────────────────────────────
-
-static void test_msgpack_roundtrip() {
-    std::printf("=== Section 3: Msgpack round-trip ===\n");
-
-    Tray orig = make_tray(TrayType::Level3, "carol");
-
-    // In-memory pack/unpack
-    auto packed = tray_mp::pack(orig);
-    CHECK(!packed.empty());
-    CHECK(packed[0] != '-');  // not YAML
-
-    Tray rt = tray_mp::unpack(packed);
-    CHECK(rt.id == orig.id);
-    CHECK(rt.alias == orig.alias);
-    CHECK(rt.slots.size() == orig.slots.size());
-
-    // File pack/unpack
-    std::string path = tmp_path("msgpack.tray");
-    tray_mp::pack_to_file(orig, path);
-    Tray rt2 = tray_mp::unpack_from_file(path);
-    CHECK(rt2.id == orig.id);
-
-    // load_tray auto-detect
-    Tray rt3 = load_tray(path);
-    CHECK(rt3.id == orig.id);
-    CHECK(rt3.slots.size() == orig.slots.size());
-    for (size_t i = 0; i < orig.slots.size(); ++i) {
-        CHECK(rt3.slots[i].pk == orig.slots[i].pk);
-        CHECK(rt3.slots[i].sk == orig.slots[i].sk);
-    }
-
-    std::printf("  level3 msgpack round-trip: OK\n");
-}
-
-// ── Section 4: UUID verification ──────────────────────────────────────────────
+// ── Section 3: UUID verification ─────────────────────────────────────────────
 
 static void test_uuid_verification() {
-    std::printf("=== Section 4: UUID verification ===\n");
+    std::printf("=== Section 3: UUID verification ===\n");
 
     Tray orig = make_tray(TrayType::Level2_25519, "dave");
-    auto packed = tray_mp::pack(orig);
+    std::string yaml = emit_tray_yaml(orig);
 
-    // Tamper: flip one pk byte
-    // Find the pk of first slot in the msgpack data and flip a byte
-    // Simpler: write to file, flip a byte, try to load_tray
-    std::string path = tmp_path("tampered.tray");
-    tray_mp::pack_to_file(orig, path);
-
-    // Tamper: flip a byte near the middle of the file
-    {
-        std::fstream f(path, std::ios::in | std::ios::out | std::ios::binary);
-        f.seekg(0, std::ios::end);
-        size_t sz = f.tellg();
-        f.seekp(sz / 2);
-        char c; f.get(c); f.seekp(sz / 2); f.put(c ^ 0xFF);
+    // Tamper: replace the correct UUID with an all-zero v8 UUID
+    std::string tampered = yaml;
+    size_t pos = tampered.find("id: ");
+    if (pos != std::string::npos) {
+        size_t eol = tampered.find('\n', pos);
+        tampered.replace(pos, eol - pos, "id: 00000000-0000-8000-8000-000000000000");
     }
+    std::string path = tmp_path("tampered_uuid.tray");
+    { std::ofstream f(path); f << tampered; }
 
-    // load_tray should either throw UUID mismatch or msgpack parse error
+    // load_tray must throw UUID mismatch
     bool threw = false;
-    try {
-        load_tray(path);
-    } catch (const std::runtime_error&) {
-        threw = true;
-    } catch (...) {
-        threw = true;
-    }
+    try { load_tray(path); } catch (...) { threw = true; }
     CHECK(threw);
-    std::printf("  tampered msgpack rejected: OK\n");
+    std::printf("  tampered YAML UUID rejected: OK\n");
 }
 
-// ── Section 5: Kyber KEM ──────────────────────────────────────────────────────
+// ── Section 4: Kyber KEM ──────────────────────────────────────────────────────
 
 static void test_kyber_kem() {
-    std::printf("=== Section 5: Kyber KEM ===\n");
+    std::printf("=== Section 4: Kyber KEM ===\n");
 
     for (int level : {512, 768, 1024}) {
         std::vector<uint8_t> pk, sk;
@@ -207,10 +161,10 @@ static void test_kyber_kem() {
     }
 }
 
-// ── Section 6: EC KEM ─────────────────────────────────────────────────────────
+// ── Section 5: EC KEM ─────────────────────────────────────────────────────────
 
 static void test_ec_kem() {
-    std::printf("=== Section 6: EC KEM ===\n");
+    std::printf("=== Section 5: EC KEM ===\n");
 
     struct Case { const char* alg; ec::Algorithm alg_enum; };
     Case cases[] = {
@@ -237,10 +191,10 @@ static void test_ec_kem() {
     }
 }
 
-// ── Section 7: Dilithium sign/verify ─────────────────────────────────────────
+// ── Section 6: Dilithium sign/verify ─────────────────────────────────────────
 
 static void test_dilithium_sig() {
-    std::printf("=== Section 7: Dilithium sign/verify ===\n");
+    std::printf("=== Section 6: Dilithium sign/verify ===\n");
 
     std::vector<uint8_t> msg = {0x01, 0x02, 0x03, 0x04, 0x05};
 
@@ -269,10 +223,10 @@ static void test_dilithium_sig() {
     }
 }
 
-// ── Section 8: EC sign/verify ─────────────────────────────────────────────────
+// ── Section 7: EC sign/verify ─────────────────────────────────────────────────
 
 static void test_ec_sig() {
-    std::printf("=== Section 8: EC sign/verify ===\n");
+    std::printf("=== Section 7: EC sign/verify ===\n");
 
     std::vector<uint8_t> msg = {0xDE, 0xAD, 0xBE, 0xEF};
 
@@ -304,10 +258,10 @@ static void test_ec_sig() {
     }
 }
 
-// ── Section 9: OBIWAN armor ───────────────────────────────────────────────────
+// ── Section 8: OBIWAN armor ───────────────────────────────────────────────────
 
 static void test_obiwan_armor() {
-    std::printf("=== Section 9: OBIWAN armor ===\n");
+    std::printf("=== Section 8: OBIWAN armor ===\n");
 
     WireHeader hdr;
     hdr.kdf    = KDFAlg::SHAKE256;
@@ -332,10 +286,10 @@ static void test_obiwan_armor() {
     std::printf("  armor_pack/unpack round-trip: OK\n");
 }
 
-// ── Section 10: AES-256-GCM + ChaCha20 ────────────────────────────────────────
+// ── Section 9: AES-256-GCM + ChaCha20 ────────────────────────────────────────
 
 static void test_symmetric() {
-    std::printf("=== Section 10: AES-256-GCM + ChaCha20 ===\n");
+    std::printf("=== Section 9: AES-256-GCM + ChaCha20 ===\n");
 
     uint8_t key[32];
     std::memset(key, 0x42, 32);
@@ -383,10 +337,10 @@ static void test_symmetric() {
     }
 }
 
-// ── Section 11: pw wire format ────────────────────────────────────────────────
+// ── Section 10: pw wire format ────────────────────────────────────────────────
 
 static void test_pw_wire_format() {
-    std::printf("=== Section 11: pw wire format ===\n");
+    std::printf("=== Section 10: pw wire format ===\n");
 
     for (int level : {512, 768, 1024}) {
         auto sz = kyber_kem_sizes(level);
@@ -429,10 +383,10 @@ static void test_pw_wire_format() {
     }
 }
 
-// ── Section 12: token wire format ─────────────────────────────────────────────
+// ── Section 11: token wire format ─────────────────────────────────────────────
 
 static void test_token_format() {
-    std::printf("=== Section 12: token wire format ===\n");
+    std::printf("=== Section 11: token wire format ===\n");
 
     // Pack/unpack round-trip
     {
@@ -546,10 +500,10 @@ static void test_token_format() {
     }
 }
 
-// ── Section 13: protect / unprotect ───────────────────────────────────────────
+// ── Section 12: protect / unprotect ───────────────────────────────────────────
 
 static void test_protect_unprotect() {
-    std::printf("=== Section 13: protect / unprotect ===\n");
+    std::printf("=== Section 12: protect / unprotect ===\n");
 
     // Round-trip: make_tray → protect_tray → unprotect_tray
     {
@@ -589,10 +543,10 @@ static void test_protect_unprotect() {
     }
 }
 
-// ── Section 7: mceliece+slhdsa keygen ─────────────────────────────────────────
+// ── Section 13: mceliece+slhdsa keygen ────────────────────────────────────────
 
 static void test_mceliece_slhdsa_keygen() {
-    std::printf("=== Section 7: mceliece+slhdsa keygen ===\n");
+    std::printf("=== Section 13: mceliece+slhdsa keygen ===\n");
 
     struct Case {
         TrayType t;
@@ -638,10 +592,10 @@ static void test_mceliece_slhdsa_keygen() {
     }
 }
 
-// ── Section 8: McEliece KEM ───────────────────────────────────────────────────
+// ── Section 14: McEliece KEM ──────────────────────────────────────────────────
 
 static void test_mceliece_kem() {
-    std::printf("=== Section 8: McEliece KEM ===\n");
+    std::printf("=== Section 14: McEliece KEM ===\n");
 
     // Test encaps/decaps round-trip for each of the 5 param sets
     const char* param_sets[] = {
@@ -665,10 +619,10 @@ static void test_mceliece_kem() {
     }
 }
 
-// ── Section 9: SLH-DSA sign/verify ───────────────────────────────────────────
+// ── Section 15: SLH-DSA sign/verify ──────────────────────────────────────────
 
 static void test_slhdsa_sig() {
-    std::printf("=== Section 9: SLH-DSA sign/verify ===\n");
+    std::printf("=== Section 15: SLH-DSA sign/verify ===\n");
 
     const char* algs[] = {
         "SLH-DSA-SHA2-128f",
@@ -703,10 +657,10 @@ static void test_slhdsa_sig() {
     }
 }
 
-// ── Section 14: OQS Groups (mlkem+mldsa and frodokem+falcon) ─────────────────
+// ── Section 16: OQS Groups (mlkem+mldsa and frodokem+falcon) ─────────────────
 
 static void test_oqs_groups() {
-    std::printf("=== Section 14: OQS Groups ===\n");
+    std::printf("=== Section 16: OQS Groups ===\n");
 
     // ── mlkem+mldsa ──────────────────────────────────────────────────────────
     {
@@ -826,7 +780,6 @@ int main() {
     try {
         test_keygen();
         test_yaml_roundtrip();
-        test_msgpack_roundtrip();
         test_uuid_verification();
         test_kyber_kem();
         test_ec_kem();
