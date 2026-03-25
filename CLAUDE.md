@@ -10,7 +10,6 @@ Crystals/
 ├── kyber/avx2/         — Kyber AVX2 source (not used by the CMake tools)
 ├── dilithium/ref/      — Dilithium reference C source; statically compiled into libcrystals-1.2 via CMake
 ├── dilithium/avx2/     — Dilithium AVX2 source (not used by the CMake tools)
-├── msgpack-c/          — msgpack-c header-only library (vendored)
 ├── XKCP/               — eXtended Keccak Code Package; pre-built libXKCP.so (obi-wan + libcrystals)
 ├── BLAKE3/             — BLAKE3 source; built + installed to local/ (UUID derivation)
 ├── oneTBB/             — oneTBB source; built + installed to local/ (BLAKE3 parallelism)
@@ -20,7 +19,6 @@ Crystals/
     ├── scotty/         — Hybrid PQ+classical tray keygen tool (uses libcrystals-1.2)
     ├── obi-wan/        — Hybrid KEM file encryption tool
     ├── libcrystals-1.2/ — Consolidated crypto library; installed to /usr/local via install.sh
-    ├── msgpack/        — Tray binary encoding library + tests
     ├── misc/           — Utilities (hashpass, etc.)
     └── static-verify/  — Standalone project verifying the static Kyber + Dilithium CMake
                           libraries; links all 8 static targets + randombytes.c, runs KEM
@@ -45,14 +43,6 @@ cmake --build pqc/obi-wan/build -j$(nproc)
 # Requires: libcrystals-1.2 installed to /usr/local (see install.sh below)
 ```
 
-**Build msgpack** (tray binary encoding library + tests):
-```bash
-cmake -S pqc/msgpack -B pqc/msgpack/build
-cmake --build pqc/msgpack/build -j$(nproc)
-# Library: pqc/msgpack/build/libtraymsgpack.a
-# Tests:   pqc/msgpack/build/test_roundtrip
-```
-
 **Install libcrystals-1.2** (required by scotty and obi-wan; installs fat static archive + CMake config to /usr/local):
 ```bash
 sudo bash pqc/libcrystals-1.2/install.sh
@@ -63,8 +53,9 @@ sudo bash pqc/libcrystals-1.2/install.sh
 
 - Never modify, rename, or remove any function marked `@api-stable`
 - Never change the signature of any function declared in the public API, "crystals/crystals.hpp"
-- When migrating demo code into libcrystals, add new functions — do not modify existing ones 
+- When migrating demo code into libcrystals, add new functions — do not modify existing ones
 - If a migration seems to require changing a stable function, STOP and report the conflict
+- **Exception (v1.2)**: the `tray_mp` namespace (msgpack tray encoding) was intentionally removed from the public API in libcrystals-1.2 as a documented breaking change. This is not a stability violation — msgpack support was removed entirely.
 
 
 ## Testing
@@ -108,9 +99,6 @@ echo "hello" > /tmp/plain.txt
 ./scotty protect   --in alice.tray --out alice.sec.tray --password-file /tmp/pw.txt
 ./scotty unprotect --in alice.sec.tray --out alice.plain.tray --password-file /tmp/pw.txt
 
-# msgpack: round-trip tests
-./pqc/msgpack/build/test_roundtrip
-
 # Kyber upstream tests (1000 cycles each level)
 cd kyber/ref && make && ./test/test_kyber768
 
@@ -136,7 +124,7 @@ pack/unpack, tray loading, and serialisation. obi-wan owns arg parsing, file I/O
 stdio interaction.
 
 **Library API used** (all `@api-stable` in `crystals/crystals.hpp`):
-- `load_tray` — auto-detects YAML vs msgpack by first byte
+- `load_tray` — loads a YAML tray file
 - `ec_kem::encaps/decaps`, `kyber_kem::encaps/decaps`, `mceliece_kem::encaps/decaps`
 - `ec_sig::sign/verify`, `dilithium_sig::sign/verify`, `slhdsa_sig::sign/verify`
 - `derive_key_shake`, `derive_key_kmac`, `derive_key_hyke`, `compute_hyke_ctx`
@@ -195,27 +183,6 @@ and `openssl/crypto.h` OPENSSL_cleanse in cmd_protect/cmd_unprotect).
 `protect --in <f> --out <f>` = encrypt sk fields → `type: secure-tray` YAML.
 `unprotect --in <f> --out <f>` = decrypt sk fields back to plain `type: tray` YAML.
 
-### msgpack Architecture
-`pqc/msgpack/src/tray_pack.{hpp,cpp}` is compiled into libcrystals-1.2 (obi-wan and scotty reach
-it via `load_tray()`). The `pqc/msgpack/` CMake project builds a standalone `libtraymsgpack.a`
-and tests for other consumers.
-
-- `pqc/include/tray.hpp` — shared domain model included by both scotty and msgpack
-- `msgpack/src/tray_pack.hpp` — public API: `tray_mp::pack`, `unpack`, `pack_to_file`, `unpack_from_file`
-- `msgpack/src/tray_pack.cpp` — implementation using msgpack-c header-only API
-- `msgpack/test/test_roundtrip.cpp` — in-memory mock Tray round-trip test (no external deps)
-
-**Wire format**: top-level msgpack map with short string keys:
-```
-map(8) { "v"→uint, "a"→str, "pg"→str, "t"→str, "id"→str, "cr"→str, "ex"→str,
-         "sl"→array[ map{ "alg"→str, "pk"→bin, "sk"→bin (optional) } ] }
-```
-pk/sk are stored as raw bytes (msgpack BIN), not base64. Achieves ~67% of YAML file size.
-
-**Dependencies**: msgpack-c header-only at `Crystals/msgpack-c/include` — **required by
-libcrystals-1.2 and the standalone msgpack build**. Do not delete `msgpack-c/`. Compile with
-`-DMSGPACK_NO_BOOST` (no Boost needed).
-
 ### Static Linking Strategy
 **obi-wan** and **scotty**: Both use `libcrystals-1.2.a` — a fat static archive (installed at
 `/usr/local/lib/`) that bundles all 8 PQ ref archives + 3 scrypt archives + McEliece + the
@@ -243,7 +210,6 @@ Both **scotty** and **obi-wan** use the same RPATH strategy:
 ## Verified Working (obi-wan)
 - All 16 encrypt/decrypt combos: {level2-25519,level2,level3,level5} × {SHAKE,KMAC} × {AES-256-GCM,ChaCha20}: OK
 - All 4 encrypt+sign/verify+decrypt (HYKE) tray types: {level2-25519,level2,level3,level5}: OK
-- YAML and msgpack tray formats both load correctly for encrypt+sign/verify+decrypt
 - 1MB binary file encrypt+sign/verify+decrypt roundtrip: OK
 - Tampered payload → "classical signature INVALID" + exit 2
 - Wrong tray type → "tray type mismatch" + exit 2; missing --tray → exit 1
@@ -274,7 +240,6 @@ CLI: `padme tray-encaps --in-tray <file> --out-png <png> --pwfile /dev/stdin`
   - `find_package(OpenSSL REQUIRED)` — for `openssl/rand.h`
   - TBB, BLAKE3, XKCP, scrypt, PQ libs all resolved transitively via CrystalsConfig.cmake
   - RPATH: `CMAKE_BUILD_RPATH` set to TBB libdir + `/usr/local/lib`
-- msgpack: `cmake -S pqc/msgpack -B pqc/msgpack/build` (no PREFIX_PATH needed; no BLAKE3/TBB)
 - static-verify: `cmake -S pqc/static-verify -B pqc/static-verify/build` (no external deps)
 
 ## Exit Codes (all tools)
