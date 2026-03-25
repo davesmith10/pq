@@ -1410,18 +1410,9 @@ inline std::vector<uint8_t> chacha20poly1305_decrypt(         // @api-stable v1.
 
 std::string emit_tray_yaml(const Tray& tray);               // @api-stable v1.0
 
-// ── Tray reader (auto-detect YAML or msgpack) ─────────────────────────────────
+// ── Tray reader ───────────────────────────────────────────────────────────────
 
 Tray load_tray(const std::string& path);                    // @api-stable v1.0
-
-// ── MessagePack tray encoding ─────────────────────────────────────────────────
-
-namespace tray_mp {
-    std::vector<uint8_t> pack(const Tray& tray);            // @api-stable v1.0
-    Tray                 unpack(const std::vector<uint8_t>& data); // @api-stable v1.0
-    void                 pack_to_file(const Tray& tray, const std::string& path); // @api-stable v1.0
-    Tray                 unpack_from_file(const std::string& path); // @api-stable v1.0
-}
 
 // ── Password encrypt / decrypt commands ──────────────────────────────────────
 

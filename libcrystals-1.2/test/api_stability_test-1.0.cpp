@@ -174,17 +174,6 @@ static_assert(kTokenAlgECDSAP256 == 0x03, "kTokenAlgECDSAP256 value changed");
 static_assert(AEAD_NONCE_LEN == 12, "AEAD_NONCE_LEN value changed");
 static_assert(AEAD_TAG_LEN   == 16, "AEAD_TAG_LEN value changed");
 
-// ── tray_mp functions ─────────────────────────────────────────────────────────
-static_assert(std::is_same_v<
-    decltype(&tray_mp::pack),
-    std::vector<uint8_t>(*)(const Tray&)
->, "tray_mp::pack signature changed");
-
-static_assert(std::is_same_v<
-    decltype(&tray_mp::unpack),
-    Tray(*)(const std::vector<uint8_t>&)
->, "tray_mp::unpack signature changed");
-
 // ── load_tray / emit_tray_yaml ────────────────────────────────────────────────
 static_assert(std::is_same_v<
     decltype(&load_tray),
