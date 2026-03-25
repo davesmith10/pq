@@ -26,7 +26,7 @@ static void print_usage(const char* prog) {
         "  " << prog << " pwencrypt [--level 512|768|1024] [--scrypt-n 20] [--pwfile <file>] <infile> <outfile>\n"
         "  " << prog << " pwdecrypt [--pwfile <file>] <infile> <outfile>\n"
         "\n"
-        "  --tray   Tray file (YAML or msgpack, auto-detected)\n"
+        "  --tray   Tray file (YAML)\n"
         "  --kdf    Key derivation function (encrypt only): SHAKE (default) or KMAC\n"
         "  --cipher Symmetric cipher (encrypt only): AES-256-GCM (default) or ChaCha20\n"
         "  --data   Token payload string (gentok only, 1–256 bytes)\n"
