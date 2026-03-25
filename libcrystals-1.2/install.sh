@@ -205,7 +205,6 @@ if(NOT TARGET Crystals::crystals)
     set_target_properties(Crystals::crystals PROPERTIES
         IMPORTED_LOCATION             "\${_crystals_root}/lib/libcrystals-1.2.a"
         INTERFACE_INCLUDE_DIRECTORIES "\${_crystals_root}/include;${XKCP_INC}"
-        INTERFACE_COMPILE_DEFINITIONS "MSGPACK_NO_BOOST"
     )
 
     # Collect transitive dynamic link deps
@@ -245,7 +244,7 @@ includedir=\${prefix}/include
 Name: crystals
 Description: Hybrid post-quantum crypto library (Kyber + Dilithium + EC + AEAD)
 Version: 1.2.0
-Cflags: -I\${includedir} -DMSGPACK_NO_BOOST
+Cflags: -I\${includedir}
 Libs: -L\${libdir} -lcrystals-1.2 -lXKCP
 Libs.private: -lssl -lcrypto -lyaml-cpp
 EOF
