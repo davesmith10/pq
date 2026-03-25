@@ -305,30 +305,6 @@ composite_sig: "BAAAA..."  # base64-encoded composite sig
 recomputes `M'`, and verifies both signatures. Outputs `verified: true` plus the
 same metadata fields on success (without `composite_sig`). Any failure exits 2.
 
-### msgpack — Tray Binary Encoding
-
-Static library (`libtraymsgpack.a`) and shared implementation used by obi-wan.
-Converts `Tray` objects to and from compact MessagePack binary. YAML is the
-canonical human-readable form; msgpack is the compact deployment artifact.
-
-The `tray_pack` module is compiled directly into `obi-wan` (enabling `--tray`
-to accept both YAML and msgpack trays). Use the standalone library for other consumers:
-
-```cpp
-#include "tray_pack.hpp"
-std::vector<uint8_t> bytes = tray_mp::pack(tray);
-Tray t = tray_mp::unpack(bytes);
-tray_mp::pack_to_file(tray, "alice.tray");
-Tray t2 = tray_mp::unpack_from_file("alice.tray");
-```
-
-Wire format: top-level msgpack map with short keys (`v`, `a`, `pg`, `t`, `id`, `cr`,
-`ex`, `sl`); pk/sk stored as raw bytes (BIN), not base64. Achieves ~67% of YAML
-file size across all tray types.
-
-**Dependency**: requires `msgpack-c` header-only library vendored at
-`Crystals/msgpack-c/`. Do not remove this directory.
-
 ## padme — Tray Steganographic Encapsulator
 
 Renders a scotty tray into a password-protected annotated PNG image. Public key bytes
@@ -388,8 +364,6 @@ cmake --build pqc/scotty/build -j$(nproc)
 cmake -S pqc/obi-wan -B pqc/obi-wan/build
 cmake --build pqc/obi-wan/build -j$(nproc)
 
-cmake -S pqc/msgpack -B pqc/msgpack/build
-cmake --build pqc/msgpack/build -j$(nproc)
 ```
 
 **static-verify** — one-time check that the static Kyber + Dilithium libraries link and
@@ -428,7 +402,6 @@ Crystals/
 ├── XKCP/                     — eXtended Keccak Code Package; pre-built libXKCP.so (SHAKE/KMAC)
 ├── BLAKE3/                   — BLAKE3 source; built + installed to local/ (UUID derivation)
 ├── oneTBB/                   — oneTBB source; built + installed to local/ (BLAKE3 parallelism)
-├── msgpack-c/                — msgpack-c header-only library (vendored; tray binary encoding)
 ├── lodepng/                  — LodePNG source (vendored; PNG encode/decode used by padme)
 ├── librandombytes-20240318/  — RNG API shim (DJB; used during PQ keygen)
 ├── libcpucycles-20260105/    — CPU cycle counter (DJB; benchmarking only)
@@ -439,7 +412,6 @@ Crystals/
     ├── obi-wan/          — Hybrid KEM file encryption tool
     ├── padme/            — Tray steganographic encapsulator (tray → password-protected PNG)
     ├── libcrystals-1.2/  — Consolidated crypto library; installed to /usr/local via install.sh
-    ├── msgpack/          — Tray binary encoding library + tests
     ├── misc/             — Utilities (hashpass, etc.)
     └── static-verify/    — Standalone project verifying the static Kyber + Dilithium CMake
                             libraries; links all 8 static targets + randombytes.c, runs KEM

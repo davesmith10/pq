@@ -26,7 +26,7 @@ UUID) and a copyright footer.
 
 | Flag | Description |
 |------|-------------|
-| `--in-tray <file>` | Source tray (YAML or msgpack, auto-detected) |
+| `--in-tray <file>` | Source tray (YAML) |
 | `--out-png <file.png>` | Output PNG (default: `<alias>_enc.png`) |
 | `--pwfile <file>` | Read password from file (newline stripped). Prompts `password:` + `again:` if omitted. |
 
@@ -49,7 +49,7 @@ Decrypts the private keys from an encaps PNG and reconstructs the original tray.
 | Flag | Description |
 |------|-------------|
 | `--in-png <file.png>` | encaps PNG produced by `padme tray-encaps` |
-| `--out-tray <file>` | Output file: YAML if `.yaml`/`.yml`, msgpack otherwise (default: YAML to stdout) |
+| `--out-tray <file>` | Output file (YAML format; default: YAML to stdout) |
 | `--pwfile <file>` | Read password from file. Prompts `password:` once if omitted. |
 
 ```bash
@@ -58,9 +58,6 @@ padme tray-decaps --in-png alice_enc.png
 
 # Recover to YAML file
 padme tray-decaps --in-png alice_enc.png --out-tray alice-recovered.yaml
-
-# Recover to msgpack file
-padme tray-decaps --in-png alice_enc.png --out-tray alice-recovered.tray
 
 # Wrong password → exit 2
 echo "wrong" | padme tray-decaps --in-png alice_enc.png --pwfile /dev/stdin
@@ -178,4 +175,3 @@ tray I/O code from `pq/libcrystals/src/` — no separate library install step ne
 | yaml-cpp 0.6 | YAML tray parsing and emission |
 | BLAKE3 | UUID self-verification when loading trays |
 | TBB | Runtime dep of BLAKE3 (parallel hashing) |
-| msgpack-c (header-only) | msgpack tray pack/unpack |

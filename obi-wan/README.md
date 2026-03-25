@@ -34,7 +34,7 @@ Output is written to stdout as a PEM-armored `OBIWAN ENCRYPTED FILE`.
 - `--cipher AES-256-GCM` (default)
 - `--cipher ChaCha20` — ChaCha20-Poly1305
 
-Tray files are accepted in either YAML or binary msgpack format (auto-detected).
+Tray files must be in YAML format.
 
 ### encrypt+sign / verify+decrypt (HYKE)
 
