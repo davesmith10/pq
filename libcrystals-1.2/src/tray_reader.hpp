@@ -2,7 +2,6 @@
 #include "tray.hpp"
 #include <string>
 
-// Load a Tray from a file path.
-// Auto-detects format: if first byte is '-' (0x2D) → YAML, else → msgpack.
+// Load a Tray from a YAML file path.
 // Throws std::runtime_error on failure.
 Tray load_tray(const std::string& path);

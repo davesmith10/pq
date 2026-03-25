@@ -15,13 +15,10 @@ set(KYBER_REF_DIR     "${CMAKE_SOURCE_DIR}/../../kyber/ref")
 set(DILITHIUM_REF_DIR "${CMAKE_SOURCE_DIR}/../../dilithium/ref")
 set(XKCP_DIR          "${CMAKE_SOURCE_DIR}/../../XKCP")
 set(SCRYPT_DIR        "${CMAKE_SOURCE_DIR}/../../scrypt")
-set(MSGPACK_INC       "${CMAKE_SOURCE_DIR}/../../msgpack-c/include")
-
 get_filename_component(KYBER_REF_DIR_ABS  "${KYBER_REF_DIR}"     ABSOLUTE)
 get_filename_component(DIL_REF_DIR_ABS    "${DILITHIUM_REF_DIR}" ABSOLUTE)
 get_filename_component(XKCP_DIR_ABS       "${XKCP_DIR}"          ABSOLUTE)
 get_filename_component(SCRYPT_DIR_ABS     "${SCRYPT_DIR}"        ABSOLUTE)
-get_filename_component(MSGPACK_INC_ABS    "${MSGPACK_INC}"       ABSOLUTE)
 
 set(XKCP_LIBDIR "${XKCP_DIR_ABS}/bin/x86-64")
 set(XKCP_INC    "${XKCP_DIR_ABS}/bin/x86-64/libXKCP.so.headers")
@@ -59,7 +56,6 @@ add_library(crystals STATIC
     src/tray.cpp
     src/yaml_io.cpp
     src/tray_reader.cpp
-    src/tray_pack.cpp
     src/ec_kem.cpp
     src/kyber_kem.cpp
     src/ec_sig.cpp
@@ -82,7 +78,6 @@ target_include_directories(crystals
     PUBLIC
         include/                  # exposes crystals/crystals.hpp only
         "${XKCP_INC}"
-        "${MSGPACK_INC_ABS}"
     PRIVATE
         src/                      # private headers visible during build only
         "${KYBER_REF_DIR_ABS}"
@@ -97,7 +92,6 @@ target_include_directories(crystals
 )
 
 target_compile_definitions(crystals
-    PUBLIC  MSGPACK_NO_BOOST
     PRIVATE HAVE_CONFIG_H
 )
 

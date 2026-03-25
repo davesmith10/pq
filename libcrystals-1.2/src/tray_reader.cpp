@@ -1,6 +1,5 @@
 #include "tray_reader.hpp"
 #include "base64.hpp"
-#include "tray_pack.hpp"
 #include "blake3.h"
 #include <yaml-cpp/yaml.h>
 #include <cstdint>
@@ -144,15 +143,7 @@ static void verify_tray_uuid(const Tray& tray) {
 // ── Entry point ───────────────────────────────────────────────────────────────
 
 Tray load_tray(const std::string& path) {
-    std::ifstream f(path, std::ios::binary);
-    if (!f)
-        throw std::runtime_error("Cannot open tray file: " + path);
-
-    int first = f.get();
-    if (first == EOF)
-        throw std::runtime_error("Tray file is empty: " + path);
-
-    Tray tray = (first == 0x2D) ? load_tray_yaml(path) : tray_mp::unpack_from_file(path);
+    Tray tray = load_tray_yaml(path);
     verify_tray_uuid(tray);
     return tray;
 }
