@@ -6,7 +6,7 @@
 
 ### Concepts: The Tray, and the Hybrid
 
-For the next few years, everyone is going to be very prudent and overkill and
+For the next few years, everyone (except maybe the Americans) is going to be very prudent and overkill and
 implement both classical and post-quantum encryption and signature - because
 we want to add additional complexity? No, because we have to plan for the situation 
 in which a clever post-quantum algorithm wasn't actually so clever, and fails. 
