@@ -445,7 +445,7 @@ WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
 ```
 
-See [LICENSE-THIRD-PARTY)[LICENSE-THIRD-PARTY] for a comprehensive list of third-party software that has been linked to.
+See (LICENSE-THIRD-PARTY)[LICENSE-THIRD-PARTY] for a comprehensive list of third-party software that has been linked to.
 
 
 
