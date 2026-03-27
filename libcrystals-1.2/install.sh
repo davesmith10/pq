@@ -52,7 +52,8 @@ if [[ ${SKIP_BUILD} -eq 0 ]]; then
     echo "[1/5] Building libcrystals-1.2..."
     cmake -S "${SCRIPT_DIR}" -B "${BUILD_DIR}" \
         -DCMAKE_PREFIX_PATH="${LOCAL_PREFIX}" \
-        -DCMAKE_BUILD_TYPE=RelWithDebInfo
+        -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+        -DCMAKE_POSITION_INDEPENDENT_CODE=ON
     cmake --build "${BUILD_DIR}" -j"$(nproc)"
 else
     echo "[1/5] Skipping build (--skip-build)"

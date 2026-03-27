@@ -78,7 +78,7 @@ Generates named **hybrid trays** — bundles of paired PQ+classical key slots
 covering both KEM and signature roles.
 
 ```
-scotty keygen [--group crystals|mceliece+slhdsa]
+scotty keygen [--group crystals|mceliece+slhdsa|mlkem+mldsa|frodokem+falcon]
               [--profile <level>]
               --alias <name>
               [--out <file>]
@@ -91,8 +91,8 @@ scotty unprotect --in <file> --out <file> [--password-file <file>]
 
 These might seem a bit capricious but there's a method to the madness. 
 
-`crystals` profile are public domain algorithms, fast and designed with involvement 
-from Peter Schwabe. These can be used with the X25519/Ed25519 classical EC.
+`crystals` profile are the public-domain kyber+dilithium lattice algorithms, fast and designed with involvement 
+from Peter Schwabe. Gives us our project concept. These can be used with the X25519/Ed25519 classical EC.
 
 `mceleice+slhdsa` The McEleice library we are using is the work of Daniel J. Bernstein and his team. 
 The algorithm is intended for long-term storage - like 50 year storage. I have paired it with SLH-DSA (sphincs+)
@@ -406,16 +406,21 @@ Crystals/
 ├── librandombytes-20240318/  — RNG API shim (DJB; used during PQ keygen)
 ├── libcpucycles-20260105/    — CPU cycle counter (DJB; benchmarking only)
 ├── local/                    — Shared install prefix for BLAKE3 + TBB (CMake finds them here)
-└── pqc/                  — Main project (git root)
-    ├── include/          — Shared headers (tray.hpp domain model)
-    ├── scotty/           — Hybrid PQ+classical tray keygen tool (uses libcrystals-1.2)
-    ├── obi-wan/          — Hybrid KEM file encryption tool
-    ├── padme/            — Tray steganographic encapsulator (tray → password-protected PNG)
-    ├── libcrystals-1.2/  — Consolidated crypto library; installed to /usr/local via install.sh
-    ├── misc/             — Utilities (hashpass, etc.)
-    └── static-verify/    — Standalone project verifying the static Kyber + Dilithium CMake
-                            libraries; links all 8 static targets + randombytes.c, runs KEM
-                            and signature round-trips for all 6 parameter sets
+└── pqc/                      — Main project (git root)
+    ├── include/              — Shared headers (tray.hpp domain model)
+    ├── scotty/               — Hybrid PQ+classical tray keygen tool (uses libcrystals-1.2)
+    ├── obi-wan/              — Hybrid KEM file encryption tool
+    ├── padme/                — Tray steganographic encapsulator (tray → password-protected PNG)
+    ├── libcrystals-1.2/      — Consolidated crypto library; installed to /usr/local via install.sh
+    ├── misc/                 — Utilities (hashpass, etc.)
+    └── static-verify/        — Standalone project verifying the static Kyber + Dilithium CMake
+                                libraries; links all 8 static targets + randombytes.c, runs KEM
+                                and signature round-trips for all 6 parameter sets
+                            
+    pqc-java/                 — Java Binding (coming soon)
+    ├── shim/                 — thin shim in extern C for a reliable ABI to use with FFM API.
+    ├── java/                 — Java binding
+                            
 ```
 
 # Licensing
