@@ -330,7 +330,7 @@ Falcon, scrypt, XKCP, BLAKE3, and oneTBB. All three tools (scotty, obi-wan, padm
 link against it via the `Crystals::crystals` CMake target. The public API is a single
 frozen header: `crystals/crystals.hpp`.
 
-Install once before building any tool:
+Install once before building any tool, defaults to /usr/local root:
 
 ```bash
 sudo bash pqc/libcrystals-1.2/install.sh
@@ -389,16 +389,17 @@ All tools use the same exit code convention:
 ## Repository Layout
 
 Quite a bit of third-party crypto is going into libcrystals. While this is somewhat fetishistic, I guess I just like crypto.
+We need to gather these source project from github. 
 
 ```
 Crystals/
-├── kyber/ref/                — Kyber reference C source; statically compiled into tools via CMake
-├── kyber/avx2/               — Kyber AVX2 source (not used by the CMake tools)
-├── dilithium/ref/            — Dilithium reference C source; statically compiled via CMake
-├── dilithium/avx2/           — Dilithium AVX2 source (not used by the CMake tools)
+├── kyber/ref/                — Kyber reference C source; statically compiled and linked
+├── kyber/avx2/               — Kyber AVX2 source (not currently used)
+├── dilithium/ref/            — Dilithium reference C source; statically compiled and linked
+├── dilithium/avx2/           — Dilithium AVX2 source (not currently used)
 ├── liboqs/                   — Open Quantum Safe library (ML-KEM, ML-DSA, FrodoKEM, Falcon, etc.)
-├── libmceliece/              — Classic McEliece KEM source (bundled into libcrystals-1.2)
-├── scrypt/                   — scrypt KDF source (bundled into libcrystals-1.2)
+├── libmceliece/              — Classic McEliece KEM source
+├── scrypt/                   — scrypt KDF source
 ├── XKCP/                     — eXtended Keccak Code Package; pre-built libXKCP.so (SHAKE/KMAC)
 ├── BLAKE3/                   — BLAKE3 source; built + installed to local/ (UUID derivation)
 ├── oneTBB/                   — oneTBB source; built + installed to local/ (BLAKE3 parallelism)
@@ -423,7 +424,7 @@ Crystals/
                             
 ```
 
-# Licensing
+## Licensing
 
 The pqc repo contents is available under an MIT license:
 
@@ -446,6 +447,8 @@ WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 ```
 
 See [LICENSE-THIRD-PARTY](LICENSE-THIRD-PARTY) for a comprehensive list of third-party software that has been linked to.
+
+
 
 
 
